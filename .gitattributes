@@ -1,0 +1,7 @@
+# 统一换行，避免 Windows 提交 CRLF 后 Linux 构建脚本报错
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.jpg binary
+*.woff2 binary

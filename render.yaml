@@ -1,0 +1,26 @@
+# Render Blueprint —— 把仓库连到 Render 后，它会自动照这份文件建服务，
+# 你不用在网页上一个个填 Build / Start Command。
+# 用法：Render 控制台 → New + → Blueprint → 选这个仓库 → Apply
+services:
+  - type: web
+    name: axon-web
+    runtime: node
+    plan: free
+    region: singapore # 离国内最近；欧美用户可改 oregon / frankfurt
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.2
+      # 密钥不写值，Render 会要求你在面板里手填（sync:false = 不落进代码仓库）
+      - key: BAIDU_API_KEY
+        sync: false
+      - key: BAIDU_SECRET_KEY
+        sync: false
+      - key: ALIYUN_ACCESS_KEY_ID
+        sync: false
+      - key: ALIYUN_ACCESS_KEY_SECRET
+        sync: false

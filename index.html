@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AXON · AI 建筑逆向图纸生成</title>
+    <style>
+      html { background: #f7f6f3; }
+      #boot {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #boot i {
+        display: block;
+        width: 18px;
+        height: 18px;
+        border: 1.5px solid #cfccc5;
+        border-top-color: #1c1b19;
+        border-radius: 50%;
+        animation: bootspin 0.7s linear infinite;
+      }
+      @keyframes bootspin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="root"><div id="boot"><i></i></div></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

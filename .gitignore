@@ -1,0 +1,23 @@
+# 依赖
+node_modules/
+
+# 构建产物（云端会在 Build 阶段重新生成，不要提交）
+dist/
+dist-ssr/
+dist-standalone/
+
+# 运行时产生的本地文件
+server.log
+server.port
+*.log
+
+# 密钥 / 本地环境变量（绝对不能提交）
+.env
+.env.*
+!.env.example
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
