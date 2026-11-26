@@ -456,5 +456,49 @@ console.log('\n⑱ 多轮对话反馈修改：解析 · 覆盖 · 真改 · 容�
   ok('Prompt 含上一版参数与 SVG', p.includes('上一版图纸 SVG'))
 }
 
+console.log('\n⑲ v0.3 口语意图词典 + 高情商引导（面向大众）')
+{
+  const { applyFeedback, COLLOQUIAL_INTENTS, GUIDED_CHOICES } = await import('../src/feedback.js')
+  const cur = {
+    c: { floors: { v: 5, src: 'user' }, fh: { v: 3.3, src: 'user' } },
+    ops: null,
+    lastModel: { floors: 5, floorHeight: 3.3, bays: 5, length: 21, totalH: 18 },
+  }
+
+  /* ── 测试用例：用户点名的几句大白话 ── */
+  const q1 = applyFeedback(cur, '这窗户是不是有点小？')
+  ok('大白话「窗户有点小？」→ 放大 20%', q1.ok && q1.ops?.windowScale === 1.2)
+  const q2 = applyFeedback(cur, '屋顶看着怪怪的')
+  ok('大白话「怪怪的」→ 随机换一版样式', q2.ok && !!q2.cPatch?.variant?.id, String(q2.cPatch?.variant?.id))
+  const q3 = applyFeedback(cur, '弄个门')
+  ok('大白话「弄个门」→ 加门', q3.ok && q3.ops?.addedDoor === true)
+  const q4 = applyFeedback(cur, '加个口子也行，搞个入口')
+  ok('大白话「口子/入口」→ 加门', q4.ok && q4.ops?.addedDoor === true)
+  const q5 = applyFeedback(cur, '太丑了，换一版吧')
+  ok('大白话「太丑了」→ 随机换版', q5.ok && !!q5.cPatch?.variant)
+  const q6 = applyFeedback(cur, '宽敞点')
+  ok('大白话「宽敞点」→ 窗放大', q6.ok && q6.ops?.windowScale === 1.2)
+  const q7 = applyFeedback(cur, '窗户太大了，收一收')
+  ok('大白话「太大收一收」→ 窗收小', q7.ok && q7.ops?.windowScale === 0.85)
+  const q8 = applyFeedback(cur, '门口太小了，进不去人')
+  ok('大白话「门口太小」→ 门加宽', q8.ok && q8.ops?.doorWiden === true)
+
+  /* ── 高情商引导：疑问句绝不回"无法解析"，抛选择题 ── */
+  const g1 = applyFeedback(cur, '剖面图是不是错了？')
+  ok('疑问句触发选择题引导', !g1.ok && Array.isArray(g1.choices) && g1.choices.length === 3 && !g1.reply.includes('无法解析'))
+  const g2 = applyFeedback(cur, '这不对吧')
+  ok('否定句同样给选项', !g2.ok && g2.choices?.length === 3)
+  ok('引导选项可点选且指令可执行', GUIDED_CHOICES.every((ch) => ch.label && ch.cmd && applyFeedback(cur, ch.cmd).ok === true))
+
+  /* ── 边界：真模糊仍拒绝（不装懂），词典不误伤 ── */
+  const b1 = applyFeedback(cur, '好看点')
+  ok('纯模糊意见仍被拒绝（不假改）', !b1.ok && b1.reply.includes('抱歉'))
+  const b2 = applyFeedback(cur, '不丑，挺好的')
+  ok('「不丑」不误触发换版', !b2.ok || b2.cPatch?.variant === undefined)
+
+  /* ── 词典结构自检 ── */
+  ok('口语词典含 6 类意图且 id 唯一', COLLOQUIAL_INTENTS.length === 6 && new Set(COLLOQUIAL_INTENTS.map((r) => r.id)).size === 6)
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`)
 process.exit(fail ? 1 : 0)

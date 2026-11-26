@@ -14,7 +14,15 @@
    接入真实 AI 后端时：把 buildPrompt(currentState, text) 的输出
    发给多模态模型，用返回的 JSON patch 替换本文件的解析结果即可 ——
    currentState 的结构（约束 + 构件意图 + 上一版模型/SVG）已经备好。
+
+   v0.3 口语化重构（面向大众产品定位）：
+   ⓪ COLLOQUIAL_INTENTS 口语意图词典 —— 同义词任一包含即命中，
+      "太丑了 / 怪怪的"→随机换一版样式，"弄个门 / 加个口子"→加门；
+   ⓪½ 高情商引导 —— 疑问句 / 否定句解析不出时绝不回"无法解析"，
+      而是抛出选择题（GUIDED_CHOICES），用户点选即触发修改。
    ═══════════════════════════════════════════════════════════════ */
+
+import { makeVariant } from './model.js'
 
 /* ── 数字解析工具：支持「3 层」「三米」「3.5m」「每层 3 米」等写法 ── */
 const CN_NUM = { 一: 1, 两: 2, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }
@@ -26,10 +34,114 @@ function numAfter(s, m) {
 const M = '(\\d+(?:\\.\\d+)?|[一两二三四五六七八九十])\\s*(?:米|m\\b|公尺)?'
 const has = (src) => (t) => new RegExp(src).test(t)
 
-/* ── 模糊意见黑名单：命中即拒绝（宁可少改，不可假改） ── */
+/* ── 模糊意见黑名单：命中即拒绝（宁可少改，不可假改）──
+   注意：口语词典命中后跳过此检查（用户说"太丑了"不是模糊，是明确要换一版） */
 const VAGUE = [
   /^(好|不错|可以|行|嗯|ok|OK)/,
   /(好看|美观|漂亮|现代|大气|高级|酷|漂亮点|好看点|优化一下|完善一下|提升一下|整体.*好)/,
+]
+
+/* ═══ 口语意图词典（v0.3 重构核心）════════════════════════════════
+   把大白话翻译成参数指令 —— 不再要求用户说标准术语。
+   匹配规则（包含匹配升级）：any = 含任一同义词即命中；
+   all = 含全部关键词才命中（防误伤）；re = 兜底正则；
+   unless = 命中任一排除词则让位给更精确的规则。
+
+   测试用例（大白话 → 预期意图）：
+   '这窗户是不是有点小？'      → windowBigger（窗户放大 20%）
+   '窗户太小了' / '宽敞点' / '放大' / '大点' → windowBigger
+   '窗户太大了' / '收一收' / '小一点'        → windowSmaller
+   '弄个门' / '加个口子' / '搞个入口'        → addDoor
+   '门太窄了' / '门口小'                     → doorWiden
+   '太丑了' / '不好看' / '屋顶看着怪怪的'     → reroll（随机换一版）
+   '剖面图是不是错了？'（疑问句，无可执行意图）→ 抛选择题引导，不拒绝
+   ───────────────────────────────────────────── */
+export const COLLOQUIAL_INTENTS = [
+  {
+    id: 'windowBigger',
+    desc: '窗户/洞口放大',
+    any: ['太小了', '太小', '窗太小', '有点小', '小了点', '大点', '大一点', '大些', '宽敞点', '宽点', '宽一点', '放大', '加大', '开大', '亮堂', '不够亮', '不够大'],
+    apply: (ops) => {
+      ops.windowScale = 1.2
+      return '已把窗户整体放大 20%（洞口宽高同步，平/立/剖共用同一份数据）'
+    },
+  },
+  {
+    id: 'windowSmaller',
+    desc: '窗户/洞口收小',
+    any: ['小一点', '缩小', '窄一点', '窄点', '收一收', '收一点', '刺眼', '晃眼'],
+    all: [['窗', '大'], ['窗', '宽']],
+    apply: (ops) => {
+      ops.windowScale = 0.85
+      return '已把窗户整体收小 15%（采光更含蓄，三视图同步）'
+    },
+  },
+  {
+    id: 'doorWiden',
+    desc: '门洞加宽',
+    any: ['门加宽', '门宽点', '门宽一点', '门大点', '门大一点', '门太小', '门太窄', '门口太小', '门口小', '门放大'],
+    re: [/门[^。]{0,4}(加宽|放大|大一点|宽一点|宽点)/],
+    apply: (ops) => {
+      ops.doorWiden = true
+      return '已将首层门洞加宽至约 2.4 m（通行更敞亮）'
+    },
+  },
+  {
+    id: 'addDoor',
+    desc: '新增门/入口',
+    any: ['弄个门', '来个门', '整个门', '加个门', '加个口子', '加个入口', '加个大门', '开个门', '开个口子', '开个入口', '装个门', '装个入口', '搞个门', '搞个入口', '搞个口子', '缺个门', '缺个入口', '没有门', '没有入口', '要有个门'],
+    re: [/加[^。]{0,4}(门|入口|口子)/, /开[^。]{0,3}(门|入口|口子)/],
+    apply: (ops) => {
+      ops.addedDoor = true
+      return '好嘞，已在首层立面增设一门（M1，宽约 1.8 m），平面洞口同步更新'
+    },
+  },
+  {
+    id: 'addBalcony',
+    desc: '新增阳台',
+    any: ['弄个阳台', '来个阳台', '整个阳台', '缺个阳台', '要个阳台'],
+    /* '加个阳台' '增加阳台' 等由下方规则 ⑨ 兜底，这里只接口语说法 */
+    apply: (ops, _cPatch, ctx) => {
+      const floors = ctx.cur?.c?.floors?.v ?? ctx.prev?.floors ?? 3
+      if (/每层|所有层|层层/.test(ctx.t)) {
+        ops.balconies = Array.from({ length: Math.max(0, floors - 1) }, (_, i) => i)
+        return `已为 2—${floors} 层逐层增设外挑阳台（挑板 1.4 m + 金属栏杆）`
+      }
+      const list = ops.balconies || []
+      const target = list.length ? Math.max(...list) + 1 : 1
+      if (target < floors) {
+        ops.balconies = [...list, target]
+        return `已增设阳台（第 ${target + 1} 层外挑 1.4 m，带栏杆）`
+      }
+      ops.balconies = [floors - 2 >= 0 ? floors - 2 : 0]
+      return '建筑层数有限，阳台已设在最高可用层'
+    },
+  },
+  {
+    id: 'reroll',
+    desc: '随机换一版样式（用户嫌弃外观时）',
+    any: ['太丑', '好丑', '丑爆', '不好看', '不顺眼', '怪怪的', '有点怪', '好怪', '看不懂', '不喜欢', '不满意', '换个风格', '换个样式', '换一版'],
+    re: [/重画/, /重来/, /再画一版/, /换.{0,2}(版|样式|风格)/],
+    apply: (_ops, cPatch) => {
+      cPatch.variant = makeVariant(Math.floor(Math.random() * 0x7fffffff))
+      return '别灰心，每人口味不一样 —— 已为你随机换了一版立面风格：窗墙比 / 开窗节奏 / 入口位置 / 檐口线脚全部重掷。看看这版顺眼吗？还不满意就再说一声，继续换！'
+    },
+  },
+]
+
+/* 词典命中判定：包含匹配（includes），不再要求全句精确相等 */
+function hitIntent(t, r) {
+  if (r.unless?.some((w) => t.includes(w))) return false
+  if (r.any?.some((w) => t.includes(w))) return true
+  if (r.re?.some((re) => re.test(t))) return true
+  return Array.isArray(r.all) && r.all.length > 0 && r.all.every((w) => t.includes(w))
+}
+
+/* ── 高情商引导选项：解析不出时抛给用户点选，点选即触发修改 ── */
+export const GUIDED_CHOICES = [
+  { label: 'A. 楼层高度不对', cmd: '把层高调高一点' },
+  { label: 'B. 屋顶/样式不对', cmd: '换个样式重新画一版' },
+  { label: 'C. 墙体线条太多', cmd: '把柱子藏进墙里' },
 ]
 
 export const FB_EXAMPLES = [
@@ -43,6 +155,10 @@ export const FB_EXAMPLES = [
   '开间数改成 6',
   '面宽 18 米',
   '总高度改成 15 米',
+  /* v0.3：口语说法同样直接可用 */
+  '这窗户是不是有点小？',
+  '屋顶看着怪怪的',
+  '弄个门',
 ]
 
 /* ── 当前状态结构（currentState）──
@@ -61,7 +177,28 @@ export const FB_EXAMPLES = [
 export function applyFeedback(cur, text) {
   const t = String(text || '').trim()
   if (!t) return { ok: false, reply: '请输入修改意见，例如：' + FB_EXAMPLES[0] }
-  if (VAGUE.some((re) => re.test(t)) && !/\d|层|窗|门|阳台|开间|面宽|进深|层高|总高/.test(t)) {
+
+  const cPatch = {}
+  const changes = []
+  const prev = cur?.lastModel || null
+  const ops = { ...(cur?.ops || {}) }
+  const ctx = { cur, prev, t }
+
+  /* ⓪ 口语意图词典：大白话 → 参数指令（包含匹配，优先级 = 数组顺序）。
+     例：'太丑了'→reroll、'弄个门'→addDoor、'太小了'→windowBigger */
+  const dictHit = new Set()
+  for (const rule of COLLOQUIAL_INTENTS) {
+    if (hitIntent(t, rule)) {
+      const msg = rule.apply(ops, cPatch, ctx)
+      if (msg) {
+        dictHit.add(rule.id)
+        changes.push(msg)
+      }
+    }
+  }
+
+  /* 模糊意见黑名单：口语词典已命中则放行（"太丑了"是明确意图，不是模糊） */
+  if (!dictHit.size && VAGUE.some((re) => re.test(t)) && !/\d|层|窗|门|阳台|开间|面宽|进深|层高|总高/.test(t)) {
     return {
       ok: false,
       reply:
@@ -69,11 +206,6 @@ export function applyFeedback(cur, text) {
         FB_EXAMPLES.slice(0, 3).join('；'),
     }
   }
-
-  const cPatch = {}
-  const changes = []
-  const prev = cur?.lastModel || null
-  const ops = { ...(cur?.ops || {}) }
 
   /* ① 层数：数值层（冲突覆盖：以用户最新意见为准） */
   let m = t.match(new RegExp('(?:改成?|改为?|设为?|调[整为到]?|只要|要|做)\\s*' + M + '\\s*层|(\\d+|[一两二三四五六七八九十])\\s*层'))
@@ -89,15 +221,15 @@ export function applyFeedback(cur, text) {
     }
   }
 
-  /* ② 层高：显式数值 / 相对调整 */
+  /* ② 层高：显式数值 / 相对调整
+     注意：「调高一点」的「一」会被中文数字捕获成"层高 1 米"，
+     所以数值分支只在值合法（2.2–6 m）时接管，否则落给相对调整分支 */
   m = t.match(new RegExp('层高[^。；]*?' + M))
-  if (m) {
-    const v = numAfter(t, m)
-    if (v >= 2.2 && v <= 6) {
-      cPatch.fh = { v, src: 'user' }
-      changes.push(prev && Math.abs(prev.floorHeight - v) > 0.01 ? `层高由 ${prev.floorHeight.toFixed(2)} m 调整为 ${v} m` : `层高设为 ${v} m`)
-    }
-  } else if (/层高.*(提高|调高|加高|增大|大一点|高一点)/.test(t)) {
+  const fhNum = m ? numAfter(t, m) : null
+  if (fhNum >= 2.2 && fhNum <= 6) {
+    cPatch.fh = { v: fhNum, src: 'user' }
+    changes.push(prev && Math.abs(prev.floorHeight - fhNum) > 0.01 ? `层高由 ${prev.floorHeight.toFixed(2)} m 调整为 ${fhNum} m` : `层高设为 ${fhNum} m`)
+  } else if (/层高.*(提高|调高|加高|增大|大一点|高一点|高些)/.test(t)) {
     const curFh = cur?.c?.fh?.v ?? prev?.floorHeight ?? 3.3
     const v = Math.round((curFh + 0.3) * 100) / 100
     cPatch.fh = { v, src: 'user' }
@@ -154,26 +286,34 @@ export function applyFeedback(cur, text) {
     }
   }
 
-  /* ⑦ 窗户大小：构件级意图，渲染与 openings 求解真实生效 */
-  if (has(/(窗|窗子|窗户|开窗).*(大|宽|高|放大|加大|加宽|扩)/.source)(t)) {
-    ops.windowScale = 1.2
-    changes.push('已将立面窗洞放大 20%（洞口宽高同步，剖面/平面共用同一份洞口数据）')
-  } else if (has(/(窗|窗子|窗户|开窗).*(小|窄|缩小|收)/.source)(t)) {
-    ops.windowScale = 0.85
-    changes.push('已将立面窗洞缩小 15%')
+  /* ⑦ 窗户大小：构件级意图，渲染与 openings 求解真实生效
+     （口语词典已命中窗类意图时跳过，避免重复报修改说明） */
+  if (!dictHit.has('windowBigger') && !dictHit.has('windowSmaller')) {
+    if (has(/(窗|窗子|窗户|开窗).*(大|宽|高|放大|加大|加宽|扩)/.source)(t)) {
+      ops.windowScale = 1.2
+      changes.push('已将立面窗洞放大 20%（洞口宽高同步，剖面/平面共用同一份洞口数据）')
+    } else if (has(/(窗|窗子|窗户|开窗).*(小|窄|缩小|收)/.source)(t)) {
+      ops.windowScale = 0.85
+      changes.push('已将立面窗洞缩小 15%')
+    }
   }
 
-  /* ⑧ 加门 / 门加大 */
-  if (/(加|增加|增设|添|装)[一个双扇]*.{0,4}(门|入口|大门)/.test(t) && !/窗/.test(t)) {
-    ops.addedDoor = true
-    changes.push('已在首层立面中央增设一门（M1，宽约 1.8 m），并同步进平面洞口')
-  } else if (/(门).*(大|宽|加宽|放大)/.test(t)) {
-    ops.doorWiden = true
-    changes.push('已将首层门洞加宽至约 2.4 m')
+  /* ⑧ 加门 / 门加大（词典已命中则跳过） */
+  if (!dictHit.has('addDoor')) {
+    if (/(加|增加|增设|添|装)[一个双扇]*.{0,4}(门|入口|大门)/.test(t) && !/窗/.test(t)) {
+      ops.addedDoor = true
+      changes.push('已在首层立面中央增设一门（M1，宽约 1.8 m），并同步进平面洞口')
+    }
+  }
+  if (!dictHit.has('doorWiden')) {
+    if (/(门).*(大|宽|加宽|放大)/.test(t)) {
+      ops.doorWiden = true
+      changes.push('已将首层门洞加宽至约 2.4 m')
+    }
   }
 
-  /* ⑨ 阳台 */
-  if (/(加|增加|增设|添|要)[一个?]*.{0,6}阳台/.test(t)) {
+  /* ⑨ 阳台（词典已命中则跳过） */
+  if (!dictHit.has('addBalcony') && /(加|增加|增设|添|要)[一个?]*.{0,6}阳台/.test(t)) {
     const floors = cur?.c?.floors?.v ?? prev?.floors ?? 3
     if (/每层|所有层|层层/.test(t)) {
       ops.balconies = Array.from({ length: Math.max(0, floors - 1) }, (_, i) => i)
@@ -220,15 +360,21 @@ export function applyFeedback(cur, text) {
     return {
       ok: false,
       reply: '抱歉，「' + unsupported.find(([re]) => re.test(t))[1] + '」暂不在当前原型的建模范围内，请给出更具体的修改指令，例如：' + FB_EXAMPLES.slice(0, 3).join('；'),
+      choices: GUIDED_CHOICES,
     }
   }
 
+  /* ⑫ 高情商引导（v0.3 核心）：解析不出时绝不回"无法解析"——
+     疑问句 / 否定句 / 抱怨句：共情 + 抛选择题，点选即触发修改；
+     其他听不懂的输入：同样给选项，只是措辞更中性。 */
   if (!changes.length) {
+    const worried = /(是不是|不对|错了?|奇怪|怪|怀疑|好像|似乎|有问题|毛病|难道|\?|？)/.test(t)
     return {
       ok: false,
-      reply:
-        '抱歉，我没有从「' + t + '」里解析出可执行的修改（不能假装改了）—— 请给出更具体的修改指令，例如：' +
-        FB_EXAMPLES.slice(0, 4).join('；'),
+      reply: worried
+        ? '抱歉没让您满意！别急，我们一步步来 —— 具体是哪里感觉不对呢？点下面的选项，或者直接用一句话描述：'
+        : '这句话我还没完全听懂，但我不想装懂。点下面的选项告诉我你的意思，或者参考示例：' + FB_EXAMPLES.slice(0, 3).join('；'),
+      choices: GUIDED_CHOICES,
     }
   }
 

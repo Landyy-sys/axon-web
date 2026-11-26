@@ -39,24 +39,42 @@ export default function FeedbackChat({ messages, onSend, busy }) {
       <div ref={listRef} className="max-h-[190px] min-h-[44px] overflow-y-auto px-3 py-2">
         {messages.length === 0 ? (
           <p className="py-1 text-[11.5px] leading-relaxed text-muted">
-            生成后可以继续用一句话改图 —— 例如「把窗户改大一点」「改成 5 层」「加个阳台」。
-            引擎会解析你的意图、真正修改几何并说明改了什么；说不清楚时它会直接拒绝，不会糊弄。
+            生成后可以继续用一句话改图 —— 说大白话也行：「窗户太小了」「弄个门」「太丑了，换一版」。
+            听不懂的时候它不会装懂，会给你几个选项点一点就能改。
           </p>
         ) : (
           messages.map((m, i) => (
             <div key={i} className={`mb-1.5 flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <p
-                className={[
-                  'max-w-[86%] rounded-lg px-2.5 py-1.5 text-[12px] leading-relaxed',
-                  m.role === 'user'
-                    ? 'bg-ink text-white'
-                    : m.rejected
-                      ? 'border border-[#b45309]/40 bg-[#fffbeb] text-[#92400e]'
-                      : 'bg-sheet text-ink',
-                ].join(' ')}
-              >
-                {m.text}
-              </p>
+              <div className="max-w-[86%]">
+                <p
+                  className={[
+                    'rounded-lg px-2.5 py-1.5 text-[12px] leading-relaxed',
+                    m.role === 'user'
+                      ? 'bg-ink text-white'
+                      : m.rejected
+                        ? 'border border-[#b45309]/40 bg-[#fffbeb] text-[#92400e]'
+                        : 'bg-sheet text-ink',
+                  ].join(' ')}
+                >
+                  {m.text}
+                </p>
+                {/* 引导选择题：点选即发送对应指令，直接触发修改 */}
+                {m.role !== 'user' && m.choices && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {m.choices.map((ch) => (
+                      <button
+                        key={ch.label}
+                        disabled={busy}
+                        onClick={() => onSend(ch.cmd)}
+                        title={ch.cmd}
+                        className="rounded-full border border-[#b45309]/50 bg-white px-2.5 py-1 text-[11px] text-[#92400e] transition-colors hover:bg-[#fef3c7] disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {ch.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ))
         )}

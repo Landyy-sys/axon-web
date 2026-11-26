@@ -98,7 +98,7 @@ export default function App() {
   const [chat, setChat] = useState([])
   const lastSvgRef = useRef(null)
 
-  const pushChat = (role, text, rejected) => setChat((old) => [...old, { role, text, rejected }])
+  const pushChat = (role, text, rejected, choices) => setChat((old) => [...old, { role, text, rejected, choices }])
 
   const genRef = useRef(0)
 
@@ -320,7 +320,7 @@ export default function App() {
       const res = applyFeedback(cur, text)
       pushChat('user', text)
       if (!res.ok) {
-        pushChat('bot', res.reply, true)
+        pushChat('bot', res.reply, true, res.choices)
         return
       }
       pushChat('bot', res.reply)
