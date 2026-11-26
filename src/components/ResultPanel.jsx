@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { IsometricDrawing, ElevationDrawing, SectionDrawing, PlanDrawing } from '../drawings.jsx'
 import ViewFusion from './ViewFusion.jsx'
 import Term from './Term.jsx'
@@ -41,6 +42,7 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
   const [showLevels, setShowLevels] = useState(true)
   const [showOpenings, setShowOpenings] = useState(true)
   const [exporting, setExporting] = useState(null) // 'png' | 'pdf' | null
+  const [allProgress, setAllProgress] = useState(null) // 1..4 | null（「下载图纸」批量导出进度）
   const [exportErr, setExportErr] = useState(null)
   const holder = useRef(null)
 
@@ -51,6 +53,39 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
     const svg = holder.current?.querySelector('svg')
     if (svg && onSvgSnapshot) onSvgSnapshot(new XMLSerializer().serializeToString(svg))
   }, [model, tab, showLevels, showOpenings, onSvgSnapshot])
+
+  /* ── 一键「下载图纸」：无需切换 Tab，把平 / 立 / 剖 / 等轴测四种视图
+     全部离屏渲染成 SVG，再逐张栅格化为高清 PNG（3 倍 ≈ 300 DPI）。
+     离屏渲染用 renderToStaticMarkup —— 和页面显示走同一组件、同一几何，
+     保证下载到手的图和屏幕上看到的分毫不差。某一张失败不影响其余。 ── */
+  const VIEW_DEFS = [
+    { id: 'iso', comp: IsometricDrawing, extra: { showInferred, showOpenings }, name: '等轴测' },
+    { id: 'elev', comp: ElevationDrawing, extra: { showLevels, showOpenings }, name: '立面' },
+    { id: 'sec', comp: SectionDrawing, extra: {}, name: '剖面' },
+    { id: 'plan', comp: PlanDrawing, extra: {}, name: '平面' },
+  ]
+
+  const doExportAll = async () => {
+    if (exporting || allProgress) return
+    setExportErr(null)
+    try {
+      for (let i = 0; i < VIEW_DEFS.length; i++) {
+        const { comp, extra, name } = VIEW_DEFS[i]
+        setAllProgress(i + 1)
+        const markup = renderToStaticMarkup(createElement(comp, { model, ...extra }))
+        const doc = new DOMParser().parseFromString(markup, 'image/svg+xml')
+        const svg = doc.documentElement
+        if (!svg || svg.tagName === 'parsererror') throw new Error(`${name}视图渲染失败`)
+        await exportPng(svg, `axon-${name}`, 3)
+        /* 连续触发多个下载事件之间留出间隙，避免浏览器吞掉后面的下载 */
+        await new Promise((r) => setTimeout(r, 250))
+      }
+    } catch (e) {
+      setExportErr(`批量导出失败：${String(e?.message || e).slice(0, 80)}`)
+    } finally {
+      setAllProgress(null)
+    }
+  }
 
   const download = () => {
     const svg = holder.current?.querySelector('svg')
@@ -134,6 +169,14 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
               房间 {model.interior?.partitions?.on ? '已建模（人工声明）' : '未建模'}
             </span>
           )}
+          <button
+            onClick={doExportAll}
+            disabled={!!exporting || !!allProgress}
+            title="一键导出平 / 立 / 剖 / 等轴测全部四张视图的高清 PNG（约 300 DPI）"
+            className="rounded-md bg-ink px-3 py-1.5 text-[11px] font-medium text-white transition-opacity hover:opacity-85 disabled:opacity-40"
+          >
+            {allProgress ? `下载中 ${allProgress}/4…` : '⬇ 下载图纸'}
+          </button>
           <button onClick={download} className="rounded-md border border-hair px-2.5 py-1.5 text-[11px] text-ink transition-colors hover:border-ink">
             SVG
           </button>
