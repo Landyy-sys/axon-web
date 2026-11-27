@@ -462,7 +462,20 @@ export default function SectionDrawing({ model }) {
           -{DROP.toFixed(3)}
         </text>
       </g>
-      <line x1={f(xEnd + 12)} y1={f(Y(PAR))} x2={f(xEnd + 12)} y2={f(Y(PAR + totalH))} stroke={MUTED} strokeWidth={W('anno')} />
+      {/* 女儿墙顶标高（v0.5）：屋顶标高 = 檐口 + 女儿墙高，勾选即同步 */}
+      {PARA > 0 && (
+        <g>
+          <line x1={f(xEnd + 12)} y1={f(Y(PAR + totalH + PARA))} x2={f(xEnd + 88)} y2={f(Y(PAR + totalH + PARA))} stroke={MUTED} strokeWidth={W('anno')} />
+          <path d={`M ${f(xEnd + 12)} ${f(Y(PAR + totalH + PARA))} l 11 -5 l 0 10 Z`} fill={INK} />
+          <text x={f(xEnd + 92)} y={f(Y(PAR + totalH + PARA)) + 4} fontSize={fs * 0.78} fontFamily="ui-monospace, monospace" fill={MUTED}>
+            +{(totalH + PARA).toFixed(3)}
+          </text>
+          <text x={f(xEnd + 92)} y={f(Y(PAR + totalH + PARA)) + 4 + fs * 0.82} fontSize={fs * 0.62} fontFamily="ui-monospace, monospace" fill={MUTED}>
+            女儿墙顶
+          </text>
+        </g>
+      )}
+      <line x1={f(xEnd + 12)} y1={f(Y(PAR))} x2={f(xEnd + 12)} y2={f(Y(PAR + totalH + (PARA > 0 ? PARA : 0)))} stroke={MUTED} strokeWidth={W('anno')} />
 
       {/* ── 第一道：总高 ── */}
       <g>

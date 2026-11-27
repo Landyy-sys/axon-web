@@ -497,7 +497,7 @@ console.log('\n⑲ v0.3 口语意图词典 + 高情商引导（面向大众）')
   ok('「不丑」不误触发换版', !b2.ok || b2.cPatch?.variant === undefined)
 
   /* ── 词典结构自检 ── */
-  ok('口语词典含 6 类意图且 id 唯一', COLLOQUIAL_INTENTS.length === 6 && new Set(COLLOQUIAL_INTENTS.map((r) => r.id)).size === 6)
+  ok('口语词典含 8 类意图且 id 唯一', COLLOQUIAL_INTENTS.length === 8 && new Set(COLLOQUIAL_INTENTS.map((r) => r.id)).size === 8)
 }
 
 console.log('\n⑳ AI 质检 selfCheck（Self-Review & Retry 闭环）')
@@ -537,6 +537,53 @@ console.log('\n⑳ AI 质检 selfCheck（Self-Review & Retry 闭环）')
 
   /* ── 空模型防御 ── */
   ok('空模型返回 no-model 而非崩溃', selfCheck(null).issues[0]?.key === 'no-model')
+}
+
+console.log('\n㉑ 女儿墙独立参数（Parapet，v0.5）')
+{
+  const { selfCheck } = await import('../src/selfcheck.js')
+  const U = (n) => ({ v: n, src: 'user' })
+
+  /* ── 三档来源 ── */
+  const m1 = makeModel(11, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0), parapet: U(1.2) })
+  ok('user 女儿墙 1.2 m 绝对优先（上人屋面）', m1.parapet === 1.2)
+  const m2 = makeModel(12, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0), parapetOff: { v: true, src: 'user' } })
+  ok('取消勾选「包含女儿墙」→ parapet = 0', m2.parapet === 0)
+  const m3 = makeModel(13, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  /* 未指定 → 类型先验 0.6 ± 檐口变体修正（cornice +0.25 / recessed -0.25 / 无 0），
+     始终落在 [0.35, 0.85] 的合规区间内 */
+  ok(
+    '未指定 → 沿用类型先验 ± 檐口变体（0.35–0.85 合规区间）',
+    m3.parapet >= 0.35 && m3.parapet <= 0.85,
+    String(m3.parapet),
+  )
+  const m4 = makeModel(14, 1.5, 1, { typeId: 'museum', floors: U(2), fh: U(4.5), parapet: U(0.9) })
+  ok('flatSlab 屋面勾选女儿墙 → 同样生效 0.9', m4.parapet === 0.9)
+
+  /* ── 总高联动：檐口不变，女儿墙顶 = 檐口 + parapet ── */
+  ok('檐口高 = 基座 + 3F × 3.0（口径不变）', Math.abs(m1.totalH - (m1.base + 9)) < 0.01)
+  ok('女儿墙顶 = 檐口 + 1.2（总高联动）', Math.abs(m1.totalH + m1.parapet - (m1.base + 9 + 1.2)) < 0.01)
+
+  /* ── 越界钳制：UI 输 5 m 会被 clamp 到物理区间 [0.5, 1.2] ── */
+  const m5 = makeModel(15, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0), parapet: U(5) })
+  ok('输入 5 m 被常识区间钳制到 ≤ 1.2', m5.parapet <= 1.2)
+
+  /* ── selfCheck 联动：带女儿墙的模型通过质检，污染版被抓出 ── */
+  ok('女儿墙 1.2 m 模型通过 selfCheck', selfCheck(m1).ok)
+  const bad = { ...m1, parapet: 9 }
+  ok('女儿墙 9 m → parapet-range 质检失败', selfCheck(bad).issues.some((i) => i.key === 'parapet-range'))
+
+  /* ── 口语意图：「加女儿墙 / 不要女儿墙」 ── */
+  const { applyFeedback } = await import('../src/feedback.js')
+  const cur = { c: { floors: U(3), fh: U(3.0) }, ops: null, lastModel: { floors: 3, floorHeight: 3.0, bays: 5, length: 21, totalH: 9.45 } }
+  const r1 = applyFeedback(cur, '屋顶加个女儿墙吧')
+  ok('口语「加女儿墙」→ parapet 0.9 user 级', r1.ok && r1.cPatch?.parapet?.v === 0.9)
+  const r2 = applyFeedback(cur, '女儿墙 1.1 米')
+  ok('口语带数值「女儿墙 1.1 米」→ 1.1', r2.ok && r2.cPatch?.parapet?.v === 1.1)
+  const r3 = applyFeedback(cur, '不要女儿墙了')
+  ok('口语「不要女儿墙」→ parapetOff 且不误加', r3.ok && r3.cPatch?.parapetOff?.v === true && r3.cPatch?.parapet?.v == null)
+  const r4 = applyFeedback(cur, '去掉女儿墙，太压抑了')
+  ok('口语「去掉女儿墙」→ parapetOff', r4.ok && r4.cPatch?.parapetOff?.v === true)
 }
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`)

@@ -276,11 +276,21 @@ export function RoofGarden({ x0, xEnd, roofY, parapet, s, sw, fs, kind = 'roofGa
   const XE = Number(xEnd)
   const RY = Number(roofY)
   const SPAN = XE - X0
-  if (kind === 'flatSlab') {
+  /* flatSlab 本无栏板；但用户在参数面板勾选「包含女儿墙」并给定高度后
+     （v0.5 独立参数），平板屋面同样要画出女儿墙 —— 高度 > 0 即服从用户 */
+  if (kind === 'flatSlab' && !(parapet > 0)) {
     /* 平板屋面：无栏板，板向外出挑 */
     return (
       <g>
         <rect x={f(X0 - 0.45 * s)} y={f(RY - 0.22 * s)} width={f(SPAN + 0.9 * s)} height={f(0.22 * s)} fill={FILL} stroke={INK} strokeWidth={W('outline')} />
+      </g>
+    )
+  }
+  if (!(parapet > 0)) {
+    /* 无女儿墙（用户取消勾选）：只画屋面完成线，不画栏板与压顶 */
+    return (
+      <g>
+        <line x1={f(X0 + 8)} y1={f(RY - 2)} x2={f(XE - 8)} y2={f(RY - 2)} stroke={MUTED} strokeWidth={W('thin')} strokeDasharray={`${sw * 1.5} ${sw * 1.5}`} />
       </g>
     )
   }
@@ -291,6 +301,16 @@ export function RoofGarden({ x0, xEnd, roofY, parapet, s, sw, fs, kind = 'roofGa
       <rect x={f(X0)} y={f(topY)} width={f(SPAN)} height={f(parapet * s)} fill={FILL} stroke={INK} strokeWidth={W('major')} />
       {/* 压顶：0.5b 加粗，两端各出挑一点点 */}
       <line x1={f(X0 - 6)} y1={f(topY)} x2={f(XE + 6)} y2={f(topY)} stroke={INK} strokeWidth={W('outline')} />
+      {/* 女儿墙高度标注（用户要求独立尺寸表达）：紧贴栏板上缘 */}
+      <text
+        x={f(XE + 14)}
+        y={f(topY + (parapet * s) / 2 + 3.5)}
+        fontSize={fs * 0.62}
+        fontFamily="ui-monospace, monospace"
+        fill={MUTED}
+      >
+        女儿墙 {parapet} m
+      </text>
       {/* 弧形挡风墙（solarium）—— 萨伏伊屋顶最具辨识度的雕塑化构件 */}
       {kind === 'roofGarden' && (
         <path

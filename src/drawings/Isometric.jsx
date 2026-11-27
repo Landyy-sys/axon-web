@@ -28,6 +28,12 @@ export default function IsometricDrawing({ model, showInferred = false, showOpen
     for (const x of [v.x0, v.x1]) for (const y of [v.y0, v.y1]) for (const z of [v.z0, v.z1]) all.push(P(x, y, z))
   })
   for (const [x, y] of [[gx0, gy0], [gx1, gy0], [gx1, gy1], [gx0, gy1]]) all.push(P(x, y, 0))
+  /* 女儿墙顶（v0.5 独立参数）：矮墙高出檐口 parapet，四角必须计入取景框，
+     否则勾选女儿墙后图顶会被裁掉 */
+  if (main && model.parapet > 0) {
+    for (const [x, y] of [[main.x0, main.y0], [main.x1, main.y0], [main.x1, main.y1], [main.x0, main.y1]])
+      all.push(P(x, y, main.z1 + model.parapet))
+  }
 
   const xs = all.map((p) => p[0]), ys = all.map((p) => p[1])
   const minX = Math.min(...xs), maxX = Math.max(...xs)
@@ -87,6 +93,33 @@ export default function IsometricDrawing({ model, showInferred = false, showOpen
           </g>
         )
       })}
+
+      {/* ── 女儿墙（v0.5 独立参数）：屋顶轮廓向上拉伸 parapet，形成一圈矮墙 ──
+          画法（画家算法）：后墙 / 左墙内面 → 四条墙顶压顶圈 → 前墙 / 右墙外立面。
+          后、左两侧外立面背向观察者不可见，只露压顶与内面；
+          墙厚取 0.24 m（与承重墙一致），平 / 立 / 剖 / 轴测共用同一 parapet 值。 */}
+      {main && model.parapet > 0 && (() => {
+        const PA = model.parapet
+        const t = 0.24
+        const zA = main.z1 // 檐口（屋面完成面）
+        const zB = zA + PA // 女儿墙顶
+        const { x0: ax0, x1: ax1, y0: ay0, y1: ay1 } = main
+        return (
+          <g strokeLinejoin="round">
+            {/* 后墙内面 + 左墙内面（越过屋面可见） */}
+            <polygon points={pts([P(ax0, ay0 + t, zA), P(ax1, ay0 + t, zA), P(ax1, ay0 + t, zB), P(ax0, ay0 + t, zB)])} fill="#d8d4cb" stroke={INK} strokeWidth={sw * 0.85} />
+            <polygon points={pts([P(ax0 + t, ay0, zA), P(ax0 + t, ay1, zA), P(ax0 + t, ay1, zB), P(ax0 + t, ay0, zB)])} fill="#d8d4cb" stroke={INK} strokeWidth={sw * 0.85} />
+            {/* 压顶圈：外圈与内圈（墙厚 t）之间的四条顶面 */}
+            <polygon points={pts([P(ax0, ay1, zB), P(ax1, ay1, zB), P(ax1, ay1 - t, zB), P(ax0, ay1 - t, zB)])} fill={SHEET} stroke={INK} strokeWidth={sw * 0.8} />
+            <polygon points={pts([P(ax0, ay0, zB), P(ax1, ay0, zB), P(ax1, ay0 + t, zB), P(ax0, ay0 + t, zB)])} fill={SHEET} stroke={INK} strokeWidth={sw * 0.8} />
+            <polygon points={pts([P(ax1 - t, ay0 + t, zB), P(ax1 - t, ay1 - t, zB), P(ax1, ay1 - t, zB), P(ax1, ay0 + t, zB)])} fill={SHEET} stroke={INK} strokeWidth={sw * 0.8} />
+            <polygon points={pts([P(ax0, ay0 + t, zB), P(ax0, ay1 - t, zB), P(ax0 + t, ay1 - t, zB), P(ax0 + t, ay0 + t, zB)])} fill={SHEET} stroke={INK} strokeWidth={sw * 0.8} />
+            {/* 前墙外立面（fy 向）+ 右墙外立面（fx 向） */}
+            <polygon points={pts([P(ax0, ay1, zA), P(ax1, ay1, zA), P(ax1, ay1, zB), P(ax0, ay1, zB)])} fill="#e4e1db" stroke={INK} strokeWidth={sw} />
+            <polygon points={pts([P(ax1, ay0, zA), P(ax1, ay1, zA), P(ax1, ay1, zB), P(ax1, ay0, zB)])} fill="#efede8" stroke={INK} strokeWidth={sw} />
+          </g>
+        )
+      })()}
 
       {/* ── 底层架空柱 pilotis ──
           等轴测必须和立面一致地表达「底层透空」：

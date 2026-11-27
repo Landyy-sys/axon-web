@@ -127,6 +127,31 @@ export const COLLOQUIAL_INTENTS = [
       return '别灰心，每人口味不一样 —— 已为你随机换了一版立面风格：窗墙比 / 开窗节奏 / 入口位置 / 檐口线脚全部重掷。看看这版顺眼吗？还不满意就再说一声，继续换！'
     },
   },
+  {
+    id: 'parapetOn',
+    desc: '增设女儿墙 / 屋顶矮墙',
+    any: ['女儿墙', '屋顶矮墙', '屋面矮墙', '护檐墙', '压顶墙'],
+    unless: ['不要女儿墙', '别要女儿墙', '去掉女儿墙', '取消女儿墙', '删掉女儿墙', '去掉矮墙', '取消矮墙'],
+    re: [/加[^。]{0,6}(女儿墙|矮墙)/, /要[^。]{0,4}女儿墙/, /弄[^。]{0,4}女儿墙/],
+    apply: (_ops, cPatch, ctx) => {
+      /* 口语里带数值的直接采用：'女儿墙 1.2 米' / '矮墙 1.1m' */
+      const mNum = ctx.t.match(/(\d+(?:\.\d+)?)\s*m?(?:米)?/)
+      const h = mNum ? Math.min(1.2, Math.max(0.5, parseFloat(mNum[1]))) : 0.9
+      cPatch.parapet = { v: h, src: 'user' }
+      cPatch.parapetOff = { v: null, src: null }
+      return `已增设女儿墙（高 ${h} m）：立面加矮墙轮廓与高度尺寸线，剖面两端矮墙做斜线填充，轴测同步拉伸出一圈矮墙，屋顶标高已含女儿墙顶`
+    },
+  },
+  {
+    id: 'parapetOff',
+    desc: '取消女儿墙',
+    re: [/不要女儿墙/, /别要女儿墙/, /去掉女儿墙/, /取消女儿墙/, /删掉女儿墙/, /去掉.{0,3}矮墙/, /取消.{0,3}矮墙/],
+    apply: (_ops, cPatch) => {
+      cPatch.parapet = { v: null, src: null }
+      cPatch.parapetOff = { v: true, src: 'user' }
+      return '已取消女儿墙，屋面恢复平板出挑样式（平 / 立 / 剖 / 轴测四视图同步更新）'
+    },
+  },
 ]
 
 /* 词典命中判定：包含匹配（includes），不再要求全句精确相等 */

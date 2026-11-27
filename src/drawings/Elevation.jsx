@@ -494,7 +494,10 @@ export default function ElevationDrawing({ model, showOpenings = true, showLevel
           />
         )
       })}
-      <LevelMark x={f(xEnd + 10)} y={f(Y(PAR + F * FH + PARA))} text={`+${(F * FH + PARA).toFixed(3)}`} fs={fs} sw={sw} side="right" />
+      {/* 女儿墙顶标高（檐口标高 + 女儿墙高；无女儿墙时不再重复画同一道） */}
+      {PARA > 0 && (
+        <LevelMark x={f(xEnd + 10)} y={f(Y(PAR + F * FH + PARA))} text={`+${(F * FH + PARA).toFixed(3)}`} fs={fs} sw={sw} side="right" />
+      )}
       <LevelMark x={f(xEnd + 10)} y={f(groundY)} text={`-${DROP.toFixed(3)}`} fs={fs} sw={sw} side="right" />
       <line x1={f(xEnd + 10)} y1={f(Y(PAR))} x2={f(xEnd + 10)} y2={f(Y(PAR + F * FH + PARA))} stroke={MUTED} strokeWidth={W('thin')} />
 
@@ -566,6 +569,25 @@ export default function ElevationDrawing({ model, showOpenings = true, showLevel
           {f(winH)}
         </text>
       </g>
+      {/* 女儿墙高度尺寸线（v0.5 独立参数）：檐口 → 女儿墙顶，0.25b 细线 */}
+      {PARA > 0 && (
+        <g>
+          <line x1={f(dxFine)} y1={f(Y(PAR + F * FH))} x2={f(dxFine)} y2={f(Y(PAR + F * FH + PARA))} stroke={MUTED} strokeWidth={W('thin')} />
+          {[Y(PAR + F * FH), Y(PAR + F * FH + PARA)].map((y, i) => (
+            <line key={`pa${i}`} x1={f(dxFine - 4)} y1={f(y)} x2={f(dxFine + 4)} y2={f(y)} stroke={MUTED} strokeWidth={W('thin')} />
+          ))}
+          <text
+            x={f(dxFine - 6)}
+            y={f((Y(PAR + F * FH) + Y(PAR + F * FH + PARA)) / 2 + 3.5)}
+            textAnchor="end"
+            fontSize={fs * 0.7}
+            fontFamily="ui-monospace, monospace"
+            fill={MUTED}
+          >
+            {f(PARA)}
+          </text>
+        </g>
+      )}
 
       {/* ── 底部轴线：首尾编号 + 中间点划线 ── */}
       {Array.from({ length: model.bays + 1 }, (_, i) => {

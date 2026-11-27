@@ -681,12 +681,40 @@ export function makeModel(seed, aspect = 1.5, views = 1, c = {}) {
   const siteDrop = r2(clamp(dropP.value, PHYSICS.siteDrop[0], PHYSICS.siteDrop[1]))
   audit.push({ key: 'siteDrop', value: `-${siteDrop.toFixed(3)}`, src: dropP.src })
 
-  /* 女儿墙 / 栏板：按屋面形式取值，user 可覆盖；檐口做法用变体给出第二种合规解。
-     注意：人工锁定时变体一律不介入 —— 「宁可保守，也不覆盖用户」。 */
+  /* ══ 女儿墙 / 栏板：v0.5 起为独立参数控制 ══
+     三档来源（优先级从高到低）：
+     ① c.parapetOff —— UI 取消勾选「包含女儿墙」：无女儿墙，屋面恢复平板出挑；
+     ② c.parapet    —— UI 勾选并指定高度（默认 0.9 m，规范区间 0.5–1.2：
+        非上人屋面 0.5–0.6，上人屋面 ≥1.1）：user 级绝对优先，变体不介入；
+     ③ 均未提供     —— 沿用屋面类型先验（parapet 0.6 / roofGarden 1.0 / flatSlab 0），
+        檐口做法变体给出第二种合规解（「宁可保守，也不覆盖用户」）。
+     总高联动：檐口 = 基座 + 层数×层高（totalH 口径不变，保证三视图共用）；
+     建筑总高（至女儿墙顶）= 檐口 + parapet，剖面屋面标高 / 立面女儿墙尺寸线 /
+     轴测矮墙拉伸全部由 parapet 驱动，勾选即平立剖轴测同步。 */
   const eavesAdj = variant.eaves === 'cornice' ? 0.25 : variant.eaves === 'recessed' ? -0.25 : 0
-  const parP = pick(c.parapet, { v: RF.parapet, src: 'type' })
-  const parapet = r2(clamp(parP.value + (parP.src === 'user' ? 0 : eavesAdj), 0, 1.5))
-  audit.push({ key: 'roof', value: `${RF.label} · 栏板 ${parapet} m`, src: parP.src })
+  let parapet
+  let parapetSrc
+  if (c.parapetOff?.v) {
+    parapet = 0
+    parapetSrc = 'user'
+  } else if (c.parapet?.v != null) {
+    /* v = 0 是合法的用户值（bench 真值「无女儿墙」就这样注入），
+       钳制下限必须是 0 而非 PHYSICS 下限 0.5 —— 只防上限失真 */
+    parapet = r2(clamp(c.parapet.v, 0, PHYSICS.parapet[1]))
+    parapetSrc = 'user'
+  } else {
+    const parP = pick(c.parapet, { v: RF.parapet, src: 'type' })
+    parapet = r2(clamp(parP.value + (parP.src === 'user' ? 0 : eavesAdj), 0, 1.5))
+    parapetSrc = parP.src
+  }
+  const eavesH = r2(PAR + floors * FH)
+  audit.push({
+    key: 'roof',
+    value: `${RF.label} · ${
+      parapet > 0 ? `栏板 ${parapet} m · 女儿墙顶 +${(eavesH + parapet).toFixed(3)}` : '无女儿墙'
+    }`,
+    src: parapetSrc,
+  })
 
   /* ══ 屋面附加构件：真实图纸上有，原引擎一个都没有 ══ */
   const roofFeatures = []

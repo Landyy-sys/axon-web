@@ -100,6 +100,22 @@ export function selfCheck(m) {
     })
   }
 
+  /* ②b 女儿墙（v0.5 独立参数）：高度必须在常识区间 0–1.5 m 且不为负 ——
+     超出即视为求解或人工输入失真（规范 0.5–1.2 m，1.5 为降级容差上限） */
+  checked++
+  if (m.parapet != null && (!(m.parapet >= 0) || m.parapet > 1.5)) {
+    issues.push({
+      key: 'parapet-range',
+      msg: `女儿墙高度 ${m.parapet} m 超出常识区间 0–1.5 m`,
+    })
+  }
+
+  /* ②c 女儿墙顶标高：有女儿墙时洞口窗顶同样不得越过女儿墙顶（已由 H+容差覆盖，
+     但女儿墙顶本身要 ≥ 檐口，防止负值倒挂） */
+  if (m.parapet != null && m.parapet > 0 && m.base != null && m.base - m.parapet > EPS) {
+    issues.push({ key: 'parapet-inverted', msg: `女儿墙高度 ${m.parapet} m 大于建筑可见高度，几何倒挂` })
+  }
+
   /* ③ 平面几何：结构柱不得越出建筑轮廓 */
   if (m.plan && Array.isArray(m.plan.columns)) {
     checked++

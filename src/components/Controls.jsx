@@ -253,6 +253,50 @@ export default function Controls({ c, onChange, disabled, calib, model }) {
           hint="±0.000 至檐口。与层数同时给定时，自动反算层高"
         />
 
+        {/* ══ 女儿墙（Parapet）：独立参数控制（v0.5）══
+            勾选 = 包含女儿墙；输入高度默认 0.9 m（规范 0.5–1.2 m）。
+            联动：建筑总高（至女儿墙顶）= 层数 × 层高 + 女儿墙高度，
+            平 / 立 / 剖 / 轴测四视图共用同一 parapet 值同步绘制。 */}
+        <div className="py-2">
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={c.parapet?.v != null ? true : c.parapetOff?.v ? false : (model?.parapet ?? 0.6) > 0}
+              disabled={disabled}
+              onChange={(e) =>
+                onChange({
+                  ...c,
+                  parapet: e.target.checked ? { v: c.parapet?.v ?? model?.parapet ?? 0.9, src: 'user' } : { v: null, src: null },
+                  parapetOff: e.target.checked ? { v: null, src: null } : { v: true, src: 'user' },
+                })
+              }
+              className="h-3 w-3 accent-[#9a3412]"
+            />
+            <span className="text-[12.5px] text-ink">包含女儿墙 (Parapet)</span>
+          </label>
+          <div className="mt-1 flex items-center gap-2 pl-[21px]">
+            <span className="shrink-0 text-[11.5px] text-muted">女儿墙高度</span>
+            <input
+              type="number"
+              value={c.parapet?.v ?? model?.parapet ?? 0.9}
+              step={0.05}
+              min={0.5}
+              max={1.2}
+              disabled={disabled || !!c.parapetOff?.v}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value)
+                if (!Number.isNaN(v))
+                  onChange({ ...c, parapet: { v, src: 'user' }, parapetOff: { v: null, src: null } })
+              }}
+              className="w-[68px] rounded border border-hair bg-white px-1.5 py-1 text-right text-[12px] text-ink outline-none disabled:bg-[#f1f0ec] disabled:text-muted"
+            />
+            <span className="text-[11px] text-muted">m</span>
+          </div>
+          <p className="mt-0.5 pl-[21px] text-[11px] leading-snug text-muted">
+            总高（至女儿墙顶）= 层数 × 层高 + 此值 · 平/立/剖/轴测同步 · 规范区间 0.5–1.2 m（非上人 0.5–0.6，上人屋面 ≥1.1）
+          </p>
+        </div>
+
         <NumField
           label="关键进深"
           term="depth"
