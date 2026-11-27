@@ -5,10 +5,12 @@ import Controls from './components/Controls.jsx'
 import Cleanup from './components/Cleanup.jsx'
 import GlossaryPanel from './components/GlossaryPanel.jsx'
 import FeedbackChat from './components/FeedbackChat.jsx'
+import QcProgress from './components/QcProgress.jsx'
 import { samplePass, finalizeCandidates, makeVariant } from './model.js'
 import { analyzeView, voidFacts } from './vision.js'
 import { fuseViews } from './fuse.js'
 import { applyFeedback, applyOpsToOpenings, buildPrompt } from './feedback.js'
+import { selfCheck } from './selfcheck.js'
 
 /* 图纸绘制层按需加载，首屏 bundle 更小 */
 const ResultPanel = lazy(() => import('./components/ResultPanel.jsx'))
@@ -97,6 +99,20 @@ export default function App() {
   const [fbOps, setFbOps] = useState(null)
   const [chat, setChat] = useState([])
   const lastSvgRef = useRef(null)
+
+  /* ══ AI 质检（Self-Review & Retry）══
+     qcStage —— 右侧三步进度：0 解析参数 / 1 生成+自检 / 2 渲染
+     qcRetry —— 已静默重试次数（0–2）
+     toast   —— 校验通过 / 复杂度提示的轻提示 */
+  const [qcStage, setQcStage] = useState(null)
+  const [qcRetry, setQcRetry] = useState(0)
+  const [toast, setToast] = useState(null)
+  const toastTimer = useRef(null)
+  const showToast = (text, ms = 2800) => {
+    setToast(text)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(null), ms)
+  }
 
   const pushChat = (role, text, rejected, choices) => setChat((old) => [...old, { role, text, rejected, choices }])
 
@@ -204,6 +220,8 @@ export default function App() {
     setPhase('running')
     setResult(null)
     setStageIdx(0)
+    setQcStage(0) // [步骤 1/3] 解析图像与约束参数
+    setQcRetry(0)
 
     const t0 = performance.now()
     const seed = Math.floor(Math.random() * 90000) + 1000
@@ -278,33 +296,76 @@ export default function App() {
       }
     }
 
-    /* 一致性投票 + 交叉校验，产出最终模型 */
-    const final = finalizeCandidates(cands)
-    const model = final ? final.model : samplePass(seed, aspect, files.length, makeBase(), 0)
+    /* ══ [步骤 2/3] 生成初步图纸 + AI 质量自检（Self-Review & Retry）══
+       生成器产出的模型先过 selfCheck 独立逻辑校验（洞口越界 / 层高失配 /
+       门悬空 / 几何倒置 / 柱越轮廓）—— 校验不通过绝不报错给用户，
+       而是静默换随机种子重新采样，最多重试 2 次，两版取问题更少者。 */
+    setQcStage(1)
 
-    /* 多轮对话反馈：构件级意图真正落到洞口数据上（三视图共用 → 自动一致），
-       参数级意见（层数/层高/开间…）已在 cc 里以 user 级覆盖。
-       柱位类意图直接改结构表达标志：外露（范斯沃斯式）↔ 墙内（齐平）。 */
-    if (ops) {
-      model.feedback = ops
-      model.openings = applyOpsToOpenings(model.openings, ops, model)
-      if (ops.columnInline) model.columnsOutside = false
-      if (ops.columnOutside) model.columnsOutside = true
+    const buildModel = (sd, candsIn) => {
+      const fin = finalizeCandidates(candsIn)
+      const mdl = fin ? fin.model : samplePass(sd, aspect, files.length, makeBase(), 0)
+      /* 多轮对话反馈：构件级意图真正落到洞口数据上（三视图共用 → 自动一致），
+         参数级意见（层数/层高/开间…）已在 cc 里以 user 级覆盖。
+         柱位类意图直接改结构表达标志：外露（范斯沃斯式）↔ 墙内（齐平）。 */
+      if (ops) {
+        mdl.feedback = ops
+        mdl.openings = applyOpsToOpenings(mdl.openings, ops, mdl)
+        if (ops.columnInline) mdl.columnsOutside = false
+        if (ops.columnOutside) mdl.columnsOutside = true
+      }
+      return { model: mdl, check: selfCheck(mdl) }
     }
+
+    let seedUsed = seed
+    let best = buildModel(seed, cands)
+    let attempts = 1
+    while (!best.check.ok && attempts < 3) {
+      setQcRetry(attempts)
+      await sleep(600) // 给进度界面一拍停留：用户能看到"自动重试中"
+      if (genRef.current !== gen) return
+      const sd = Math.floor(Math.random() * 90000) + 1000
+      const rcands = []
+      for (let k = 0; k < PASSES; k++) rcands.push(samplePass(sd, aspect, files.length, makeBase(), k))
+      const alt = buildModel(sd, rcands)
+      attempts++
+      /* 两版取优：通过版优先；都不通过则保留问题更少的版本 */
+      if (alt.check.ok || alt.check.issues.length <= best.check.issues.length) {
+        best = alt
+        seedUsed = sd
+      }
+      if (best.check.ok) break
+    }
+    const { model, check } = best
+
     if (override?.prompt) console.debug('[AXON → AI backend]\n' + override.prompt)
+
+    /* ══ [步骤 3/3] 校验通过，渲染最终图纸 ══ */
+    setQcStage(2)
+    await sleep(500)
+    if (genRef.current !== gen) return
 
     setResult({
       model,
       meta: {
-        seed,
+        seed: seedUsed,
         ms: Math.round(performance.now() - t0),
         passes: cands.length,
         variant: model.variant?.id || null,
         views: files.length,
         observed: model.plan?.observed?.length || 1,
+        qc: { ok: check.ok, attempts, issues: check.issues, checked: check.checked },
       },
     })
     setPhase('done')
+    setQcStage(null)
+    setQcRetry(0)
+    showToast(
+      check.ok
+        ? '✅ 已通过 AI 几何一致性校验'
+        : '抱歉，当前图片信息较复杂，请尝试补充或修改左侧的具体参数',
+      check.ok ? 2800 : 5200,
+    )
   }, [files, c, calib, cleaned, viewFacts, fbOps])
 
   const running = phase === 'running'
@@ -437,15 +498,27 @@ export default function App() {
           <section className="flex min-h-[600px] flex-col rounded-xl border border-hair bg-white p-5">
             <h2 className="mb-4 font-mono text-[11px] tracking-wider text-muted">02 · OUTPUT</h2>
 
-            {result ? (
-              <Suspense fallback={<Booting />}>
-                <ResultPanel
-                  result={result}
-                  busy={running}
-                  onRegenerate={() => run()}
-                  onSvgSnapshot={(svg) => (lastSvgRef.current = svg)}
-                />
-              </Suspense>
+            {/* 生成期间不出图，先展示三步质检进度；完成后才渲染 ResultPanel */}
+            {running && !result ? (
+              <QcProgress step={qcStage ?? 0} retry={qcRetry} />
+            ) : result ? (
+              <>
+                {result.meta?.qc && !result.meta.qc.ok && (
+                  <div className="mb-3 rounded-lg border border-[#b45309]/40 bg-[#fffbeb] px-3 py-2 text-[12px] leading-relaxed text-[#92400e]">
+                    抱歉，当前图片信息较复杂，请尝试补充或修改左侧的具体参数
+                    （已自动重试 {result.meta.qc.attempts - 1} 次仍未完全通过：
+                    {result.meta.qc.issues?.[0]?.msg || '几何一致性待确认'}）
+                  </div>
+                )}
+                <Suspense fallback={<Booting />}>
+                  <ResultPanel
+                    result={result}
+                    busy={running}
+                    onRegenerate={() => run()}
+                    onSvgSnapshot={(svg) => (lastSvgRef.current = svg)}
+                  />
+                </Suspense>
+              </>
             ) : (
               <div className="grid-bg flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-[#cfccc5] px-8 py-16 text-center">
                 <svg width="42" height="42" viewBox="0 0 32 32" fill="none" stroke="#cfccc5" strokeWidth="1.1">
@@ -467,6 +540,13 @@ export default function App() {
           </section>
         </div>
       </main>
+
+      {/* AI 质检结果轻提示（校验通过 / 复杂度建议） */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 rounded-lg border border-hair bg-ink px-4 py-2.5 text-[12.5px] text-white shadow-lg">
+          {toast}
+        </div>
+      )}
 
       {/* ────────── Footer ────────── */}
       <footer className="border-t border-hair">

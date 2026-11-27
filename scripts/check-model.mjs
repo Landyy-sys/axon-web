@@ -500,5 +500,44 @@ console.log('\n⑲ v0.3 口语意图词典 + 高情商引导（面向大众）')
   ok('口语词典含 6 类意图且 id 唯一', COLLOQUIAL_INTENTS.length === 6 && new Set(COLLOQUIAL_INTENTS.map((r) => r.id)).size === 6)
 }
 
+console.log('\n⑳ AI 质检 selfCheck（Self-Review & Retry 闭环）')
+{
+  const { selfCheck } = await import('../src/selfcheck.js')
+  const U = (n) => ({ v: n, src: 'user' })
+
+  /* ── 合规模型必须通过：正常生成 100 版抽检 ── */
+  let allOk = true
+  let checkedN = 0
+  for (let s = 1; s <= 100; s++) {
+    const m = makeModel(s, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0), span: U(18) })
+    const r = selfCheck(m)
+    checkedN = Math.max(checkedN, r.checked)
+    if (!r.ok) { allOk = false; console.log('   seed', s, r.issues) }
+  }
+  ok('100 版合规模型全部通过自检', allOk)
+  ok('自检条数真实执行（> 5 项/模型）', checkedN > 5)
+
+  /* ── 手工污染三类问题，逐类验证被抓出 ── */
+  const m1 = makeModel(7, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  m1.openings[0].x1 = m1.length + 2
+  ok('污染①：窗超出总面宽 → opening-out', selfCheck(m1).issues.some((i) => i.key === 'opening-out'))
+
+  const m2 = makeModel(8, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  const d2 = m2.openings.find((o) => o.kind === 'door') || m2.openings[0]
+  d2.kind = 'door'; d2.fl = 2; d2.sill = 8
+  ok('污染②：门悬空（3 层 / 8 m 标高）→ door-floating', selfCheck(m2).issues.some((i) => i.key === 'door-floating'))
+
+  const m3 = makeModel(9, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  m3.floors = 5 // 层数改了，总高没动
+  ok('污染③：层数与总高失配 → height-mismatch', selfCheck(m3).issues.some((i) => i.key === 'height-mismatch'))
+
+  const m4 = makeModel(10, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  m4.openings[0].sill = 4.2; m4.openings[0].head = 1.0
+  ok('污染④：窗台高于窗顶 → sill-above-head', selfCheck(m4).issues.some((i) => i.key === 'sill-above-head'))
+
+  /* ── 空模型防御 ── */
+  ok('空模型返回 no-model 而非崩溃', selfCheck(null).issues[0]?.key === 'no-model')
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`)
 process.exit(fail ? 1 : 0)
