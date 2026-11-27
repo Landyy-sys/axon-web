@@ -586,5 +586,93 @@ console.log('\n㉑ 女儿墙独立参数（Parapet，v0.5）')
   ok('口语「去掉女儿墙」→ parapetOff', r4.ok && r4.cPatch?.parapetOff?.v === true)
 }
 
+console.log('\n㉒ Self-Reflection 闭环：STANDARD_RULES 规则库 + autoCorrect + selfReview')
+{
+  const { STANDARD_RULES, selfCheck, autoCorrect, selfReview } = await import('../src/selfcheck.js')
+  const U = (n) => ({ v: n, src: 'user' })
+
+  /* ── 规则库完整性 ── */
+  ok('规则库 ≥ 10 条且每条都有 id/label/apply', STANDARD_RULES.length >= 10 && STANDARD_RULES.every((r) => r.id && r.label && typeof r.apply === 'function'))
+  ok('用户点名的三条规则在库中（洞口边界/总高/剖切）',
+    STANDARD_RULES.some((r) => r.id === 'opening-bounds') &&
+    STANDARD_RULES.some((r) => r.id === 'total-height') &&
+    STANDARD_RULES.some((r) => r.id === 'section-cut'))
+
+  /* ── 100 版合规模型必须一次通过 selfReview（0 纠错）── */
+  let allOk = true
+  let anyFixed = false
+  for (let s = 100; s <= 199; s++) {
+    const m = makeModel(s, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0), span: U(18) })
+    const r = selfReview(m)
+    if (!r.ok || r.fixedCount > 0) {
+      allOk = false
+      console.log('   seed', s, r.issues, r.fixes)
+    }
+    if (r.fixedCount > 0) anyFixed = true
+  }
+  ok('100 版合规模型全部一次通过 selfReview（无误纠）', allOk)
+  ok('合规模型零自动纠错（不乱改好数据）', !anyFixed)
+
+  /* ── 污染⑤：窗宽大于开间 → window-vs-bay，且 autoCorrect 收窄修复 ── */
+  const w1 = makeModel(7, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  const win = w1.openings.find((o) => o.kind === 'window' && o.x1 - o.x0 < w1.bay)
+  if (win) {
+    win.x1 = Math.round((win.x0 + w1.bay * 1.6) * 100) / 100 // 故意拉宽到开间 1.6 倍
+    const c1 = selfCheck(w1)
+    ok('污染⑤：窗宽 > 开间宽 → window-vs-bay', c1.issues.some((i) => i.key === 'window-vs-bay'))
+    const rv1 = selfReview(w1)
+    ok('selfReview 自动纠错：收窄后复检通过', rv1.ok && rv1.model.openings.some((o) => o.x1 - o.x0 <= rv1.model.bay * 1.02 + 0.02))
+    ok('纠错明细已记录', rv1.fixedCount > 0 && rv1.fixes.length === rv1.fixedCount)
+  } else {
+    ok('污染⑤：窗宽 > 开间宽（该种子无独立窗，跳过）', true)
+  }
+
+  /* ── 污染⑥：窗户坐标为负 → opening-out，autoCorrect 吸附回边界 ── */
+  const w2 = makeModel(8, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  w2.openings[0].x0 = -0.8
+  ok('污染⑥：负坐标 → opening-out', selfCheck(w2).issues.some((i) => i.key === 'opening-out'))
+  const rv2 = selfReview(w2)
+  ok('selfReview 自动纠错：负坐标吸附回 0 且复检通过', rv2.ok && rv2.model.openings[0].x0 >= 0)
+
+  /* ── 污染⑦：女儿墙比总高还大 → parapet-range，autoCorrect 夹回 ── */
+  const w3 = makeModel(9, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0), parapet: U(1.2) })
+  w3.parapet = 9
+  ok('污染⑦：女儿墙 9 m → parapet-range', selfCheck(w3).issues.some((i) => i.key === 'parapet-range'))
+  const rv3 = selfReview(w3)
+  ok('selfReview 自动纠错：女儿墙夹回 0–1.2 m', rv3.ok && rv3.model.parapet <= 1.2 && rv3.model.parapet >= 0)
+
+  /* ── 污染⑧：总高失配 → height-mismatch，autoCorrect 重算 ── */
+  const w4 = makeModel(10, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  w4.floors = 6 // 层数改了，总高没动
+  ok('污染⑧：层数与总高失配 → height-mismatch', selfCheck(w4).issues.some((i) => i.key === 'height-mismatch'))
+  const rv4 = selfReview(w4)
+  ok('selfReview 自动纠错：总高按 6F 重算且复检通过',
+    rv4.ok && Math.abs(rv4.model.totalH - (rv4.model.base + 6 * rv4.model.floorHeight)) < 0.05)
+
+  /* ── 污染⑨：门悬空 → door-floating，autoCorrect 落地 ── */
+  const w5 = makeModel(11, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  const d5 = w5.openings.find((o) => o.kind === 'door') || w5.openings[0]
+  d5.kind = 'door'; d5.fl = 2; d5.sill = 8
+  ok('污染⑨：门悬空 → door-floating', selfCheck(w5).issues.some((i) => i.key === 'door-floating'))
+  const rv5 = selfReview(w5)
+  ok('selfReview 自动纠错：门放回首层地面', rv5.ok && rv5.model.openings.some((o) => o.kind === 'door' && o.fl === 0))
+
+  /* ── 剖切有效性规则 ── */
+  const w6 = makeModel(12, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  w6.openings = w6.openings.filter((o) => o.kind === 'solid') // 只留实墙 → 剖面无信息量
+  ok('污染⑩：剖切面无洞口无楼梯 → section-empty', selfCheck(w6).issues.some((i) => i.key === 'section-empty'))
+  ok('剖切位置越出进深 → cut-out', selfCheck({ ...w6, plan: { ...w6.plan, cutY: w6.depth + 3 } }).issues.some((i) => i.key === 'cut-out'))
+
+  /* ── autoCorrect 不污染原模型（深拷贝）── */
+  const w7 = makeModel(13, 1.5, 1, { typeId: 'residential', floors: U(3), fh: U(3.0) })
+  w7.openings[0].x0 = -0.5
+  const snap = w7.openings[0].x0
+  autoCorrect(w7)
+  ok('autoCorrect 返回深拷贝，原模型不被改动', w7.openings[0].x0 === snap)
+
+  /* ── selfCheck 兼容接口仍可用（v0.4 老调用方不破）── */
+  ok('selfCheck(null) 仍返回 no-model', selfCheck(null).issues[0]?.key === 'no-model')
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`)
 process.exit(fail ? 1 : 0)

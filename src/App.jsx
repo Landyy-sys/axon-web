@@ -10,7 +10,7 @@ import { samplePass, finalizeCandidates, makeVariant } from './model.js'
 import { analyzeView, voidFacts } from './vision.js'
 import { fuseViews } from './fuse.js'
 import { applyFeedback, applyOpsToOpenings, buildPrompt } from './feedback.js'
-import { selfCheck } from './selfcheck.js'
+import { selfReview } from './selfcheck.js'
 
 /* 图纸绘制层按需加载，首屏 bundle 更小 */
 const ResultPanel = lazy(() => import('./components/ResultPanel.jsx'))
@@ -296,10 +296,13 @@ export default function App() {
       }
     }
 
-    /* ══ [步骤 2/3] 生成初步图纸 + AI 质量自检（Self-Review & Retry）══
-       生成器产出的模型先过 selfCheck 独立逻辑校验（洞口越界 / 层高失配 /
-       门悬空 / 几何倒置 / 柱越轮廓）—— 校验不通过绝不报错给用户，
-       而是静默换随机种子重新采样，最多重试 2 次，两版取问题更少者。 */
+    /* ══ [步骤 2/3] 生成初步图纸 + 建筑规范自检（Self-Reflection 闭环）══
+       生成器产出的模型先过 selfReview：① 对照 STANDARD_RULES 标准答案
+       规则库逐条比对（洞口越界 / 窗宽大于开间 / 总高失配 / 女儿墙区间 /
+       剖切有效性 / 门悬空 / 柱越轮廓 / 开间模数）；② 发现可自动纠错的
+       失真（负坐标、悬空门、女儿墙越界…）直接改参数后台重新生成；
+       ③ 复检仍不过 → 静默换随机种子重采样，最多重试 2 次，两版取优。
+       全程绝不把中间错误报给用户。 */
     setQcStage(1)
 
     const buildModel = (sd, candsIn) => {
@@ -314,7 +317,8 @@ export default function App() {
         if (ops.columnInline) mdl.columnsOutside = false
         if (ops.columnOutside) mdl.columnsOutside = true
       }
-      return { model: mdl, check: selfCheck(mdl) }
+      const rev = selfReview(mdl)
+      return { model: rev.model, check: rev }
     }
 
     let seedUsed = seed
@@ -354,7 +358,16 @@ export default function App() {
         variant: model.variant?.id || null,
         views: files.length,
         observed: model.plan?.observed?.length || 1,
-        qc: { ok: check.ok, attempts, issues: check.issues, checked: check.checked },
+        qc: {
+          ok: check.ok,
+          attempts,
+          issues: check.issues,
+          checked: check.checked,
+          rules: check.rules,
+          initial: check.initial ?? 0,
+          fixed: check.fixedCount ?? 0,
+          fixes: check.fixes ?? [],
+        },
       },
     })
     setPhase('done')
@@ -362,8 +375,10 @@ export default function App() {
     setQcRetry(0)
     showToast(
       check.ok
-        ? '✅ 已通过 AI 几何一致性校验'
-        : '抱歉，当前图片信息较复杂，请尝试补充或修改左侧的具体参数',
+        ? `✅ 已通过建筑规范自检校验（${check.rules ?? 10} 条规则${
+            check.fixedCount ? ` · 自动纠错 ${check.fixedCount} 处` : ''
+          }）`
+        : '因照片透视复杂，已为您生成基础草图，请调整参数以获得更高精度',
       check.ok ? 2800 : 5200,
     )
   }, [files, c, calib, cleaned, viewFacts, fbOps])
@@ -505,8 +520,9 @@ export default function App() {
               <>
                 {result.meta?.qc && !result.meta.qc.ok && (
                   <div className="mb-3 rounded-lg border border-[#b45309]/40 bg-[#fffbeb] px-3 py-2 text-[12px] leading-relaxed text-[#92400e]">
-                    抱歉，当前图片信息较复杂，请尝试补充或修改左侧的具体参数
-                    （已自动重试 {result.meta.qc.attempts - 1} 次仍未完全通过：
+                    因照片透视复杂，已为您生成基础草图，请调整参数以获得更高精度
+                    （已自动重试 {result.meta.qc.attempts - 1} 次、自动纠错 {result.meta.qc.fixed || 0} 处，
+                    仍有 {result.meta.qc.issues?.length || 0} 处待确认：
                     {result.meta.qc.issues?.[0]?.msg || '几何一致性待确认'}）
                   </div>
                 )}

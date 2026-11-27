@@ -220,6 +220,26 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
         </p>
       )}
 
+      {/* ── 建筑规范自检校验结果（Self-Reflection 闭环出口）──
+          通过 → 图纸下方小绿勾；自动纠错过的版本同时注明纠错处数 */}
+      {meta.qc?.ok && (
+        <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-[#15803d]">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#15803d" strokeWidth="1.8">
+            <path d="M2.5 8.5 6.5 12.5 13.5 4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>已通过建筑规范自检校验</span>
+          <span className="font-mono text-[10.5px] text-[#15803d]/70">
+            [{meta.qc.rules || 10} 条规则 · {meta.qc.checked || meta.qc.rules || 10} 项检查
+            {meta.qc.fixed ? ` · 自动纠错 ${meta.qc.fixed} 处` : ''}]
+          </span>
+        </p>
+      )}
+      {meta.qc?.ok && meta.qc.fixes?.length > 0 && (
+        <p className="mt-1 font-mono text-[10.5px] leading-relaxed text-muted">
+          自动纠错明细：{meta.qc.fixes.join('；')}
+        </p>
+      )}
+
       {/* 元数据条 */}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 font-mono text-[11px] text-muted">
         <span>engine <span className="text-ink">TRELLIS.2</span></span>
