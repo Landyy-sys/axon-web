@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { REF_ANCHORS } from '../model.js'
 import { classifyRole } from '../fuse.js'
+import { resampleImage } from '../image.js'
 
 const ACCEPT = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp']
 const MAX_MB = 15
@@ -61,12 +62,27 @@ export default function UploadZone({ files = [], onChange, onCalibrate, disabled
       accepted.forEach((item) => {
         const url = URL.createObjectURL(item)
         const probe = new Image()
-        probe.onload = () => {
-          onChange([
-            ...files,
-            /* raw 必须保留：后续要把它解码成像素做真实的视觉分析 */
-            { id: ++uid, url, raw: item, name: item.name, size: item.size, w: probe.width, h: probe.height },
-          ])
+        probe.onload = async () => {
+          /* 模块二 · 重采样：先在本模块把超大图压到 1080p 上限（质量 0.8），
+             再进入视觉分析管线 —— 防止 4000px 级原图解码时撑爆移动端内存。
+             压缩失败 / 无需压缩时原样入库，绝不阻塞上传主流程。 */
+          let entry = {
+            id: ++uid,
+            url,
+            raw: item,
+            name: item.name,
+            size: item.size,
+            w: probe.width,
+            h: probe.height,
+          }
+          try {
+            const oldUrl = url
+            entry = await resampleImage(entry)
+            if (entry.url !== oldUrl) URL.revokeObjectURL(oldUrl) // 旧大图立刻释放
+          } catch {
+            /* 保留原 entry */
+          }
+          onChange([...files, entry])
           if (--pending === 0) setActive(files.length)
         }
         probe.onerror = () => {

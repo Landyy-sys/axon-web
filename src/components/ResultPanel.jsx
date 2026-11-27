@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, createElement } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { IsometricDrawing, ElevationDrawing, SectionDrawing, PlanDrawing } from '../drawings.jsx'
+import SheetFrame from '../drawings/SheetFrame.jsx'
 import ViewFusion from './ViewFusion.jsx'
 import Term from './Term.jsx'
 import { exportPng, exportPdf } from '../export.js'
@@ -56,23 +57,33 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
 
   /* ── 一键「下载图纸」：无需切换 Tab，把平 / 立 / 剖 / 等轴测四种视图
      全部离屏渲染成 SVG，再逐张栅格化为高清 PNG（3 倍 ≈ 300 DPI）。
-     离屏渲染用 renderToStaticMarkup —— 和页面显示走同一组件、同一几何，
+     离屏渲染与屏幕显示走同一 renderView 出口（含 A3 图框与图签），
      保证下载到手的图和屏幕上看到的分毫不差。某一张失败不影响其余。 ── */
   const VIEW_DEFS = [
-    { id: 'iso', comp: IsometricDrawing, extra: { showInferred, showOpenings }, name: '等轴测' },
-    { id: 'elev', comp: ElevationDrawing, extra: { showLevels, showOpenings }, name: '立面' },
-    { id: 'sec', comp: SectionDrawing, extra: {}, name: '剖面' },
-    { id: 'plan', comp: PlanDrawing, extra: {}, name: '平面' },
+    { id: 'iso', comp: IsometricDrawing, extra: { showInferred, showOpenings }, name: '等轴测', sheetTitle: '等轴测分析图 ISOMETRIC', sheetNo: 'A-01', basis: (m) => Math.max(m.length, m.depth, m.totalH) },
+    { id: 'elev', comp: ElevationDrawing, extra: { showLevels, showOpenings }, name: '立面', sheetTitle: '南立面图 ELEVATION', sheetNo: 'A-02', basis: (m) => m.length },
+    { id: 'sec', comp: SectionDrawing, extra: {}, name: '剖面', sheetTitle: '剖面图 SECTION A—A', sheetNo: 'A-03', basis: (m) => m.depth },
+    { id: 'plan', comp: PlanDrawing, extra: {}, name: '平面', sheetTitle: '平面图 PLAN', sheetNo: 'A-04', basis: (m) => m.length },
   ]
+
+  /* 统一渲染出口：A3 图框 + 图签（比例按视图基准自动计算）+ 视图本体 */
+  const renderView = (id) => {
+    const d = VIEW_DEFS.find((v) => v.id === id)
+    return (
+      <SheetFrame model={model} title={d.sheetTitle} sheetNo={d.sheetNo} scaleBasis={d.basis(model)}>
+        <d.comp model={model} {...d.extra} />
+      </SheetFrame>
+    )
+  }
 
   const doExportAll = async () => {
     if (exporting || allProgress) return
     setExportErr(null)
     try {
       for (let i = 0; i < VIEW_DEFS.length; i++) {
-        const { comp, extra, name } = VIEW_DEFS[i]
+        const { name } = VIEW_DEFS[i]
         setAllProgress(i + 1)
-        const markup = renderToStaticMarkup(createElement(comp, { model, ...extra }))
+        const markup = renderToStaticMarkup(renderView(VIEW_DEFS[i].id))
         const doc = new DOMParser().parseFromString(markup, 'image/svg+xml')
         const svg = doc.documentElement
         if (!svg || svg.tagName === 'parsererror') throw new Error(`${name}视图渲染失败`)
@@ -206,12 +217,12 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
         </div>
       </div>
 
-      {/* 图纸画布 */}
+      {/* 图纸画布（A3 图框 + 图签 + 视图，与导出走同一出口） */}
       <div ref={holder} className="grid-bg flex-1 overflow-hidden rounded-lg border border-hair bg-sheet">
-        {tab === 'iso' && <IsometricDrawing model={model} showInferred={showInferred} showOpenings={showOpenings} />}
-        {tab === 'elev' && <ElevationDrawing model={model} showLevels={showLevels} showOpenings={showOpenings} />}
-        {tab === 'sec' && <SectionDrawing model={model} />}
-        {tab === 'plan' && <PlanDrawing model={model} />}
+        {tab === 'iso' && renderView('iso')}
+        {tab === 'elev' && renderView('elev')}
+        {tab === 'sec' && renderView('sec')}
+        {tab === 'plan' && renderView('plan')}
       </div>
 
       {exportErr && (

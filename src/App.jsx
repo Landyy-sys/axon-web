@@ -118,6 +118,21 @@ export default function App() {
 
   const genRef = useRef(0)
 
+  /* ══ 模块二 · 异步任务防抖（Debounce）══
+     生成管线一轮要跑 20+ 秒、会触碰十几个状态位，绝不允许并发进入：
+     · runDebounced —— 500ms 尾沿防抖：快速连点「生成」/「重新生成」只保留最后一次
+     · feedbackDebounced —— 400ms 尾沿防抖：意见输入快速回车只发最后一条
+     · 组件卸载 / 换照片时清掉挂起的定时器
+     genRef 代际守卫仍在 run 内部兜底：即使定时器竞态漏进来一拍，
+     旧代次的任务也会在下一个阶段边界自行退出。 */
+  const runTimer = useRef(null)
+  const fbTimer = useRef(null)
+  const clearDebounce = () => {
+    clearTimeout(runTimer.current)
+    clearTimeout(fbTimer.current)
+  }
+  useEffect(() => clearDebounce, [])
+
   const resetOut = () => {
     setResult(null)
     setPhase('idle')
@@ -157,6 +172,7 @@ export default function App() {
   }, [files, viewFacts])
 
   const handleFiles = useCallback((next) => {
+    clearDebounce() // 换一批照片：挂起的生成/意见任务全部作废
     setFiles(next)
     setResult(null)
     setPhase('idle')
@@ -172,6 +188,7 @@ export default function App() {
   }, [])
 
   const changeC = useCallback((next) => {
+    clearDebounce() // 参数变动：挂起的生成任务作废
     setC(next)
     setResult(null)
     setPhase('idle')
@@ -180,6 +197,7 @@ export default function App() {
 
   /* 标定结果写入 calib 级约束（优先级低于 user，高于类型常识） */
   const handleCalib = useCallback((res) => {
+    clearDebounce()
     setCalib(res)
     setResult(null)
     setPhase('idle')
@@ -187,6 +205,7 @@ export default function App() {
   }, [])
 
   const handleCleaned = useCallback((url, meta) => {
+    clearDebounce()
     setCleaned({ url, ...meta })
     setResult(null)
     setPhase('idle')
@@ -416,6 +435,24 @@ export default function App() {
     [c, fbOps, result, running, run],
   )
 
+  /* 防抖入口（定义在 run / handleFeedback 之后，避免 TDZ 引用）：
+     连点「生成」500ms 内只触发最后一次；意见快速回车 400ms 内只发最后一条 */
+  const runDebounced = useCallback(
+    (override) => {
+      clearTimeout(runTimer.current)
+      runTimer.current = setTimeout(() => run(override), 500)
+    },
+    [run],
+  )
+
+  const feedbackDebounced = useCallback(
+    (text) => {
+      clearTimeout(fbTimer.current)
+      fbTimer.current = setTimeout(() => handleFeedback(text), 400)
+    },
+    [handleFeedback],
+  )
+
   return (
     <div className="min-h-screen">
       {/* ────────── Header ────────── */}
@@ -468,7 +505,7 @@ export default function App() {
             <GlossaryPanel />
 
             <button
-              onClick={() => run()}
+              onClick={() => runDebounced()}
               disabled={!files.length || running || !cleaned}
               className={[
                 'mt-5 w-full rounded-lg py-3 text-[14px] transition-all duration-200',
@@ -530,7 +567,7 @@ export default function App() {
                   <ResultPanel
                     result={result}
                     busy={running}
-                    onRegenerate={() => run()}
+                    onRegenerate={() => runDebounced()}
                     onSvgSnapshot={(svg) => (lastSvgRef.current = svg)}
                   />
                 </Suspense>
@@ -551,8 +588,9 @@ export default function App() {
               </div>
             )}
 
-            {/* ── 多轮对话反馈修改：基础参数 + 上一版图纸 + 最新意见 三者融合 ── */}
-            <FeedbackChat messages={chat} onSend={handleFeedback} busy={running} />
+            {/* ── 多轮对话反馈修改：基础参数 + 上一版图纸 + 最新意见 三者融合
+                （意见输入经 400ms 防抖，快速连发只执行最后一条）── */}
+            <FeedbackChat messages={chat} onSend={feedbackDebounced} busy={running} />
           </section>
         </div>
       </main>

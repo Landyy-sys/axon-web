@@ -8,6 +8,10 @@ export const SHEET = '#fdfcfa'
 
 export const SHEET_W = 840
 
+/* GB/T 50104 线宽分级与比例计算：纯 JS 模块（Node 测试可导入），此处转发 */
+export { LINE_W, hatchW } from './lineweight.js'
+export { SCALE_SERIES, pickScale } from './sheetmeta.js'
+
 export const f = (n) => Number(n).toFixed(1)
 export const pts = (arr) => arr.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')
 
@@ -57,7 +61,7 @@ export function Stamp({ x, y, lines, sw }) {
 export function GroundHatch({ id, sw }) {
   return (
     <pattern id={id} width="9" height="9" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="0" x2="0" y2="9" stroke={MUTED} strokeWidth={sw * 0.7} opacity="0.5" />
+      <line x1="0" y1="0" x2="0" y2="9" stroke={MUTED} strokeWidth={hatchW(sw * 0.7)} opacity="0.5" />
     </pattern>
   )
 }
@@ -65,7 +69,7 @@ export function GroundHatch({ id, sw }) {
 export function InferredHatch({ id, sw }) {
   return (
     <pattern id={id} width="8" height="8" patternTransform="rotate(-45)" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="0" x2="0" y2="8" stroke={ACCENT} strokeWidth={sw * 0.9} opacity="0.5" />
+      <line x1="0" y1="0" x2="0" y2="8" stroke={ACCENT} strokeWidth={hatchW(sw * 0.9)} opacity="0.5" />
     </pattern>
   )
 }
@@ -73,7 +77,7 @@ export function InferredHatch({ id, sw }) {
 export function GlassHatch({ id, sw }) {
   return (
     <pattern id={id} width="7" height="7" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="7" x2="7" y2="0" stroke={MUTED} strokeWidth={sw * 0.5} opacity="0.35" />
+      <line x1="0" y1="7" x2="7" y2="0" stroke={MUTED} strokeWidth={hatchW(sw * 0.5)} opacity="0.35" />
     </pattern>
   )
 }
@@ -112,16 +116,16 @@ export function ScaleBar({ x, y, fs, sw, meters, pxPerMeter }) {
   )
 }
 
-/* 水平尺寸链：尺寸线与尺寸界线 0.25b，端部短线 0.5b */
+/* 水平尺寸链：尺寸线与尺寸界线统一 0.5（LINE_W.DIM，GB/T 50104 细线级） */
 export function DimLine({ x1, x2, y, label, fs, sw }) {
   /* 调用方常传入已 toFixed 的字符串，必须先转数值再取中点 */
   const mid = (Number(x1) + Number(x2)) / 2
   const w = Math.max(52, String(label).length * 6.6 + 12)
   return (
     <g>
-      <line x1={x1} y1={y} x2={x2} y2={y} stroke={INK} strokeWidth={sw * 0.3} />
+      <line x1={x1} y1={y} x2={x2} y2={y} stroke={INK} strokeWidth={LINE_W.DIM} />
       {[x1, x2].map((x, i) => (
-        <line key={i} x1={x} y1={y - 6} x2={x} y2={y + 6} stroke={INK} strokeWidth={sw * 0.5} />
+        <line key={i} x1={x} y1={y - 6} x2={x} y2={y + 6} stroke={INK} strokeWidth={LINE_W.DIM} />
       ))}
       <rect x={mid - w / 2} y={y - 7} width={w} height={14} fill={SHEET} />
       <text
@@ -144,7 +148,7 @@ export function DimLine({ x1, x2, y, label, fs, sw }) {
 export function PocheConcrete({ id, sw }) {
   return (
     <pattern id={id} width="10" height="10" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="0" x2="0" y2="10" stroke={INK} strokeWidth={sw * 0.55} opacity="0.75" />
+      <line x1="0" y1="0" x2="0" y2="10" stroke={INK} strokeWidth={hatchW(sw * 0.55)} opacity="0.75" />
       <circle cx="5" cy="5" r={sw * 0.5} fill={INK} opacity="0.5" />
     </pattern>
   )
@@ -153,8 +157,8 @@ export function PocheConcrete({ id, sw }) {
 export function PocheMasonry({ id, sw }) {
   return (
     <pattern id={id} width="8" height="8" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="2" x2="8" y2="2" stroke={INK} strokeWidth={sw * 0.5} opacity="0.7" />
-      <line x1="4" y1="2" x2="4" y2="8" stroke={INK} strokeWidth={sw * 0.4} opacity="0.45" />
+      <line x1="0" y1="2" x2="8" y2="2" stroke={INK} strokeWidth={hatchW(sw * 0.5)} opacity="0.7" />
+      <line x1="4" y1="2" x2="4" y2="8" stroke={INK} strokeWidth={hatchW(sw * 0.4)} opacity="0.45" />
     </pattern>
   )
 }
@@ -162,7 +166,7 @@ export function PocheMasonry({ id, sw }) {
 export function PocheInsulation({ id, sw }) {
   return (
     <pattern id={id} width="7" height="7" patternUnits="userSpaceOnUse">
-      <path d="M0 0 L7 7 M7 0 L0 7" stroke={MUTED} strokeWidth={sw * 0.45} opacity="0.6" />
+      <path d="M0 0 L7 7 M7 0 L0 7" stroke={MUTED} strokeWidth={hatchW(sw * 0.45)} opacity="0.6" />
     </pattern>
   )
 }
@@ -170,7 +174,7 @@ export function PocheInsulation({ id, sw }) {
 export function PocheEarth({ id, sw }) {
   return (
     <pattern id={id} width="11" height="11" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="0" x2="0" y2="11" stroke={MUTED} strokeWidth={sw * 0.8} opacity="0.55" />
+      <line x1="0" y1="0" x2="0" y2="11" stroke={MUTED} strokeWidth={hatchW(sw * 0.8)} opacity="0.55" />
     </pattern>
   )
 }
@@ -178,7 +182,7 @@ export function PocheEarth({ id, sw }) {
 export function PocheSteel({ id, sw }) {
   return (
     <pattern id={id} width="5" height="5" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-      <line x1="0" y1="0" x2="0" y2="5" stroke={INK} strokeWidth={sw * 0.6} opacity="0.8" />
+      <line x1="0" y1="0" x2="0" y2="5" stroke={INK} strokeWidth={hatchW(sw * 0.6)} opacity="0.8" />
     </pattern>
   )
 }
@@ -376,7 +380,7 @@ export function CutLine({ x1, y1, x2, y2, tag = 'A', fs, sw, flip = false }) {
   const arrow = 9
   return (
     <g>
-      <line x1={X1} y1={Y1} x2={X2} y2={Y2} stroke={ACCENT} strokeWidth={sw * 1.6} strokeDasharray={`${sw * 7} ${sw * 3}`} />
+      <line x1={X1} y1={Y1} x2={X2} y2={Y2} stroke={ACCENT} strokeWidth={Math.min(sw * 1.6, 2)} strokeDasharray={`${sw * 7} ${sw * 3}`} />
       {[
         [X1, Y1],
         [X2, Y2],
@@ -388,7 +392,7 @@ export function CutLine({ x1, y1, x2, y2, tag = 'A', fs, sw, flip = false }) {
             x2={f(x + px * arrow * s)}
             y2={f(y + py * arrow * s)}
             stroke={ACCENT}
-            strokeWidth={sw * 1.6}
+            strokeWidth={Math.min(sw * 1.6, 2)}
           />
           <text
             x={f(x + px * (arrow + 6) * s)}
@@ -406,13 +410,13 @@ export function CutLine({ x1, y1, x2, y2, tag = 'A', fs, sw, flip = false }) {
   )
 }
 
-/* ══ 轴线：端部圆圈编号 + 点划线 ══ */
+/* ══ 轴线：端部圆圈编号 + 点划线（线宽 0.5，GB/T 50104 细线级） ══ */
 export function Axis({ x, yTop, yBottom, label, fs, sw }) {
   const r = fs * 0.88
   return (
     <g>
-      <line x1={x} y1={yTop} x2={x} y2={yBottom} stroke={FAINT} strokeWidth={sw * 0.25} strokeDasharray={`${sw * 5} ${sw * 2} ${sw} ${sw * 2}`} />
-      <circle cx={x} cy={yTop - r * 1.6} r={r} fill={SHEET} stroke={MUTED} strokeWidth={sw * 0.3} />
+      <line x1={x} y1={yTop} x2={x} y2={yBottom} stroke={FAINT} strokeWidth={LINE_W.DIM} strokeDasharray={`${sw * 5} ${sw * 2} ${sw} ${sw * 2}`} />
+      <circle cx={x} cy={yTop - r * 1.6} r={r} fill={SHEET} stroke={MUTED} strokeWidth={LINE_W.DIM} />
       <text
         x={x}
         y={yTop - r * 1.6 + fs * 0.34}

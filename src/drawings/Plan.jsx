@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W,
+  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W,
   f, Stamp, ScaleBar, DimLine, CutLine,
   PocheConcrete, PocheMasonry,
 } from './shared.jsx'
@@ -26,7 +26,7 @@ export default function PlanDrawing({ model }) {
   const L = model.length
   const D = model.depth
   const T = P.wallT
-  const sw = 1.9 // b
+  const sw = LINE_W.CUT // 剖切墙体 3.0（GB/T 50104），0.5b=1.5 恰为未剖切轮廓级
   const fs = 11
   const LW = { cut: 1.0, major: 0.5, seen: 0.25, anno: 0.25 }
   const W = (k) => sw * LW[k]

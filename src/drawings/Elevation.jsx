@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W,
+  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W,
   f, Person, Stamp, ScaleBar, DimLine, LevelMark, GroundHatch, GlassHatch,
   WindowDetail, CutLine, RibbonWindow, Pilotis, RoofGarden, Ramp,
   PocheConcrete,
@@ -35,7 +35,7 @@ export default function ElevationDrawing({ model, showOpenings = true, showLevel
   /* ±0.000 首层完成面：固定高度，画布高度改由内容往下撑 */
   const baseY = 370
 
-  const sw = 1.9 // b（基本线宽），四级线宽由此派生
+  const sw = LINE_W.VISIBLE // 未剖切轮廓线 1.5（GB/T 50104），0.5b=0.75 为框料分格细部
   const fs = 11
   /* 线宽分级：b = sw */
   const LW = { ground: 1.4, outline: 1.0, major: 0.5, thin: 0.25 }

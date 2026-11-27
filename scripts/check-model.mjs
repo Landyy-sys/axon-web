@@ -674,5 +674,25 @@ console.log('\n㉒ Self-Reflection 闭环：STANDARD_RULES 规则库 + autoCorre
   ok('selfCheck(null) 仍返回 no-model', selfCheck(null).issues[0]?.key === 'no-model')
 }
 
+console.log('\n㉓ 模块一/二：A3 图框比例计算 + 线宽分级常量')
+{
+  const { pickScale, SCALE_SERIES } = await import('../src/drawings/sheetmeta.js')
+  const { LINE_W } = await import('../src/drawings/lineweight.js')
+
+  /* ── 线宽分级：用户点名的三档 ── */
+  ok('剖切轮廓线 = 3', LINE_W.CUT === 3)
+  ok('未剖切轮廓线 = 1.5', LINE_W.VISIBLE === 1.5)
+  ok('尺寸标注/轴线 = 0.5', LINE_W.DIM === 0.5)
+
+  /* ── 比例自动计算：反算毫米比并向上吸附标准系列 ── */
+  ok('比例系列含 1:50–1:500', SCALE_SERIES[0] === 50 && SCALE_SERIES.at(-1) === 500)
+  ok('21 m 面宽 → 1:100（常规住宅立面）', pickScale(21) === 100)
+  ok('8 m 小建筑 → 1:50', pickScale(8) === 50)
+  ok('45 m 大体量 → 1:200', pickScale(45) === 200)
+  ok('120 m 超大 → 1:500 兜底', pickScale(120) === 500)
+  ok('非法基准 → 默认 1:100 不崩溃', pickScale(0) === 100 && pickScale(-3) === 100)
+  ok('自定义内容宽度生效（30 mm → 更大比例）', pickScale(21, 30) === 500)
+}
+
 console.log(`\n结果：${pass} 通过 / ${fail} 失败\n`)
 process.exit(fail ? 1 : 0)

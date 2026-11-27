@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W,
+  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W,
   f, Person, Stamp, ScaleBar, DimLine, GroundHatch,
   PocheConcrete, PocheMasonry, PocheInsulation, PocheEarth,
   CutLine, Axis, Pilotis, RoofGarden, Ramp,
@@ -42,7 +42,7 @@ export default function SectionDrawing({ model }) {
   const x0 = (SHEET_W - L * s) / 2
   const baseY = VB_H - 215
 
-  const sw = 1.9 // b（基本线宽）
+  const sw = LINE_W.CUT // 剖切轮廓线 3.0（GB/T 50104），0.5b=1.5 恰为未剖切轮廓级
   const fs = 11
   const LW = { cut: 1.0, minor: 0.5, seen: 0.25, anno: 0.25 }
   const W = (k) => sw * LW[k]
