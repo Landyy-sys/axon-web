@@ -350,6 +350,11 @@ export default function App() {
 
     let seedUsed = seed
     let best
+    /* attempts 必须声明在 try 之外：try 块作用域里的变量出了块就没了，
+       而 [步骤 3/3] 组装 meta.qc 时还要用它 —— v0.7.2 线上事故复盘：
+       它曾被困在 try 里，运行到 setResult 时抛 ReferenceError，
+       run() 卡死在『正在渲染最终图纸』100% 不动 */
+    let attempts = 1
     /* v0.7.2 防卡死 · 求解时间预算：整段自检+重试最多花 1.2 秒真实计算。
        三重硬限制（任一命中立即停）：① 重试次数 ≤ 1；② 墙钟 ≤ 1200ms；
        ③ try/catch 兜底 —— 超预算或异常时直接交付当前最优版本（带降级告警条），
@@ -358,7 +363,6 @@ export default function App() {
     const tSolve = performance.now()
     try {
       best = buildModel(seed, cands)
-      let attempts = 1
       while (!best.check.ok && attempts < 2 && performance.now() - tSolve < SOLVE_BUDGET_MS) {
         setQcRetry(attempts)
         await sleep(600) // 给进度界面一拍停留：用户能看到"自动重试中"
@@ -388,43 +392,55 @@ export default function App() {
 
     if (override?.prompt) console.debug('[AXON → AI backend]\n' + override.prompt)
 
-    /* ══ [步骤 3/3] 校验通过，渲染最终图纸 ══ */
-    setQcStage(2)
-    await sleep(500)
-    if (genRef.current !== gen) return
+    /* ══ [步骤 3/3] 校验通过，渲染最终图纸 ══
+       v0.7.2b：这一段也包 try/catch —— 上线事故复盘：组装 meta 时引用了
+       作用域外的变量抛 ReferenceError，run() 在此静默卡死在 100%。
+       任何此处异常必须弹 toast 并回到空闲态，绝不无声挂死。 */
+    try {
+      setQcStage(2)
+      await sleep(500)
+      if (genRef.current !== gen) return
 
-    setResult({
-      model,
-      meta: {
-        seed: seedUsed,
-        ms: Math.round(performance.now() - t0),
-        passes: cands.length,
-        variant: model.variant?.id || null,
-        views: files.length,
-        observed: model.plan?.observed?.length || 1,
-        qc: {
-          ok: check.ok,
-          attempts,
-          issues: check.issues,
-          checked: check.checked,
-          rules: check.rules,
-          initial: check.initial ?? 0,
-          fixed: check.fixedCount ?? 0,
-          fixes: check.fixes ?? [],
+      setResult({
+        model,
+        meta: {
+          seed: seedUsed,
+          ms: Math.round(performance.now() - t0),
+          passes: cands.length,
+          variant: model.variant?.id || null,
+          views: files.length,
+          observed: model.plan?.observed?.length || 1,
+          qc: {
+            ok: check.ok,
+            attempts,
+            issues: check.issues,
+            checked: check.checked,
+            rules: check.rules,
+            initial: check.initial ?? 0,
+            fixed: check.fixedCount ?? 0,
+            fixes: check.fixes ?? [],
+          },
         },
-      },
-    })
-    setPhase('done')
-    setQcStage(null)
-    setQcRetry(0)
-    showToast(
-      check.ok
-        ? `✅ 已通过建筑规范自检校验（${check.rules ?? 10} 条规则${
-            check.fixedCount ? ` · 自动纠错 ${check.fixedCount} 处` : ''
-          }）`
-        : '因照片透视复杂，已为您生成基础草图，请调整参数以获得更高精度',
-      check.ok ? 2800 : 5200,
-    )
+      })
+      setPhase('done')
+      setQcStage(null)
+      setQcRetry(0)
+      showToast(
+        check.ok
+          ? `✅ 已通过建筑规范自检校验（${check.rules ?? 10} 条规则${
+              check.fixedCount ? ` · 自动纠错 ${check.fixedCount} 处` : ''
+            }）`
+          : '因照片透视复杂，已为您生成基础草图，请调整参数以获得更高精度',
+        check.ok ? 2800 : 5200,
+      )
+    } catch (err) {
+      console.error('[AXON] 出图阶段异常：', err)
+      showToast(`出图失败：${String(err?.message || err).slice(0, 60)}。请点「生成图纸」重试。`, 6000)
+      setPhase('idle')
+      setStageIdx(-1)
+      setQcStage(null)
+      setQcRetry(0)
+    }
   }, [files, c, calib, cleaned, viewFacts, fbOps])
 
   const running = phase === 'running'
