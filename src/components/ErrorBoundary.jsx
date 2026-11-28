@@ -50,13 +50,13 @@ export default class ErrorBoundary extends React.Component {
             <path d="M12 9.5v5M12 17.2v.2" strokeLinecap="round" />
           </svg>
           <p className="mt-3 text-[13.5px] font-medium text-[#7f1d1d]">
-            图纸渲染出错了，但网站没有崩溃
+            ⚠️ 图纸渲染失败，请检查左侧参数是否填写完整
           </p>
           <p className="mt-1 max-w-[420px] font-mono text-[11px] leading-relaxed text-[#b45309]">
             {this.props.label ? `出错区域：${this.props.label} · ` : ''}{msg}
           </p>
           <p className="mt-1.5 text-[11.5px] text-[#7f1d1d]/80">
-            可以点下方按钮重试，或点「重新生成」换一版方案。
+            网站没有崩溃。可点下方按钮重试，或点「重新生成」换一版方案。
           </p>
           <button
             onClick={this.reset}
