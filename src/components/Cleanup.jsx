@@ -71,7 +71,6 @@ export default function Cleanup({ file, onApply, onClear, cleanedUrl }) {
       setErased(0)
       setCorrections([])
       setOpenId(null)
-      setClosed(false)
 
       /* 真实检测：缩到 DETECT_MAX 后读像素，再把框坐标放大回画布尺度。
          有服务端时先探云端高精度分割（百度 / 阿里，见 scripts/api-segment.mjs）：
