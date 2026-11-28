@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W,
+  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W, safeDiv,
   f, Person, Stamp, ScaleBar, DimLine, GroundHatch,
   PocheConcrete, PocheMasonry, PocheInsulation, PocheEarth,
   CutLine, Axis, Pilotis, RoofGarden, Ramp,
@@ -37,8 +37,9 @@ export default function SectionDrawing({ model }) {
   const colsM = (model.columns && model.columns.length ? model.columns : [L * 0.28]).filter((c) => c <= L)
 
   const totalH = F * FH
-  /* 左右留出尺寸链 / 标高 / 图签空间 */
-  const s = Math.min(470 / (L + 0.8), 330 / (totalH + PARA + DROP + 0.6))
+  /* 左右留出尺寸链 / 标高 / 图签空间（safeDiv：分母不可能为 0 或负）
+     —— v0.7.1 防白屏：除数统一走 safeDiv，杜绝除零产生 Infinity 坐标 */
+  const s = Math.min(safeDiv(470, L + 0.8, 8), safeDiv(330, totalH + PARA + DROP + 0.6, 8))
   const x0 = (SHEET_W - L * s) / 2
   const baseY = VB_H - 215
 
@@ -66,7 +67,7 @@ export default function SectionDrawing({ model }) {
   const colX = X(L * 0.28)
   /* 剖切位置索引：用平面 cutY 在进深中的比例定位，保证与 PLAN 同一条剖切线 */
   const clamp01 = (v) => Math.max(0.06, Math.min(0.94, v))
-  const cutRatio = model.plan?.cutY != null ? clamp01(model.plan.cutY / model.depth) : 0.5
+  const cutRatio = model.plan?.cutY != null && model.depth > 0 ? clamp01(model.plan.cutY / model.depth) : 0.5
 
   const clear = Math.round((FH - SLAB - FIN) * 100) / 100
   const stride = F > 8 ? 2 : 1
@@ -341,9 +342,11 @@ export default function SectionDrawing({ model }) {
       {/* ── 楼梯：仅在人工声明「剖切经过楼梯间」时绘制 ── */}
       {hasStair &&
         Array.from({ length: F }, (_, i) => {
-          const steps = stair.risersPerFlight
+          /* v0.7.1 防除零：踏步数兜底 ≥1，否则 run/steps 会产生 Infinity，
+             SVG 路径全部失效 */
+          const steps = Math.max(1, Math.round(stair.risersPerFlight || 1))
           const rx = x0 + WALL * s + 0.15 * s
-          const run = Math.min(L * s * 0.24, steps * stair.tread * s)
+          const run = Math.min(L * s * 0.24, steps * (stair.tread || 0.28) * s)
           const topY = Y(i * FH)
           const botY = Y((i + 1) * FH)
           const treadPx = run / steps

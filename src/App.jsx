@@ -6,6 +6,7 @@ import Cleanup from './components/Cleanup.jsx'
 import GlossaryPanel from './components/GlossaryPanel.jsx'
 import FeedbackChat from './components/FeedbackChat.jsx'
 import QcProgress from './components/QcProgress.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { samplePass, finalizeCandidates, makeVariant } from './model.js'
 import { analyzeView, voidFacts } from './vision.js'
 import { fuseViews } from './fuse.js'
@@ -321,7 +322,9 @@ export default function App() {
        剖切有效性 / 门悬空 / 柱越轮廓 / 开间模数）；② 发现可自动纠错的
        失真（负坐标、悬空门、女儿墙越界…）直接改参数后台重新生成；
        ③ 复检仍不过 → 静默换随机种子重采样，最多重试 2 次，两版取优。
-       全程绝不把中间错误报给用户。 */
+       全程绝不把中间错误报给用户。
+       v0.7.1：整段求解包 try/catch —— 求解抛错绝不白屏：
+       屏幕弹 toast 说明失败原因，界面回到可重新生成的空闲态。 */
     setQcStage(1)
 
     const buildModel = (sd, candsIn) => {
@@ -341,23 +344,34 @@ export default function App() {
     }
 
     let seedUsed = seed
-    let best = buildModel(seed, cands)
-    let attempts = 1
-    while (!best.check.ok && attempts < 3) {
-      setQcRetry(attempts)
-      await sleep(600) // 给进度界面一拍停留：用户能看到"自动重试中"
-      if (genRef.current !== gen) return
-      const sd = Math.floor(Math.random() * 90000) + 1000
-      const rcands = []
-      for (let k = 0; k < PASSES; k++) rcands.push(samplePass(sd, aspect, files.length, makeBase(), k))
-      const alt = buildModel(sd, rcands)
-      attempts++
-      /* 两版取优：通过版优先；都不通过则保留问题更少的版本 */
-      if (alt.check.ok || alt.check.issues.length <= best.check.issues.length) {
-        best = alt
-        seedUsed = sd
+    let best
+    try {
+      best = buildModel(seed, cands)
+      let attempts = 1
+      while (!best.check.ok && attempts < 3) {
+        setQcRetry(attempts)
+        await sleep(600) // 给进度界面一拍停留：用户能看到"自动重试中"
+        if (genRef.current !== gen) return
+        const sd = Math.floor(Math.random() * 90000) + 1000
+        const rcands = []
+        for (let k = 0; k < PASSES; k++) rcands.push(samplePass(sd, aspect, files.length, makeBase(), k))
+        const alt = buildModel(sd, rcands)
+        attempts++
+        /* 两版取优：通过版优先；都不通过则保留问题更少的版本 */
+        if (alt.check.ok || alt.check.issues.length <= best.check.issues.length) {
+          best = alt
+          seedUsed = sd
+        }
+        if (best.check.ok) break
       }
-      if (best.check.ok) break
+    } catch (err) {
+      console.error('[AXON] 求解管线异常：', err)
+      showToast(`生成失败：${String(err?.message || err).slice(0, 60)}。已停止本次生成，请调整参数后重试。`, 6000)
+      setPhase('idle')
+      setStageIdx(-1)
+      setQcStage(null)
+      setQcRetry(0)
+      return
     }
     const { model, check } = best
 
@@ -563,14 +577,19 @@ export default function App() {
                     {result.meta.qc.issues?.[0]?.msg || '几何一致性待确认'}）
                   </div>
                 )}
-                <Suspense fallback={<Booting />}>
-                  <ResultPanel
-                    result={result}
-                    busy={running}
-                    onRegenerate={() => runDebounced()}
-                    onSvgSnapshot={(svg) => (lastSvgRef.current = svg)}
-                  />
-                </Suspense>
+                {/* 结果面板按需加载（React.lazy）。懒加载 chunk 拉取失败
+                    （弱网 / 部署资产缺失）或面板内部渲染抛错时，
+                    ErrorBoundary 就地显示提示卡 —— 进度条走完绝不白屏 */}
+                <ErrorBoundary label="结果面板">
+                  <Suspense fallback={<Booting />}>
+                    <ResultPanel
+                      result={result}
+                      busy={running}
+                      onRegenerate={() => runDebounced()}
+                      onSvgSnapshot={(svg) => (lastSvgRef.current = svg)}
+                    />
+                  </Suspense>
+                </ErrorBoundary>
               </>
             ) : (
               <div className="grid-bg flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-[#cfccc5] px-8 py-16 text-center">

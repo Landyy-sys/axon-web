@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W,
+  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W, safeDiv,
   f, Person, Stamp, ScaleBar, DimLine, LevelMark, GroundHatch, GlassHatch,
   WindowDetail, CutLine, RibbonWindow, Pilotis, RoofGarden, Ramp,
   PocheConcrete,
@@ -30,7 +30,9 @@ export default function ElevationDrawing({ model, showOpenings = true, showLevel
   const isRibbon = model.fenestration === 'ribbon'
   const isCurtain = model.fenestration === 'curtain'
 
-  const s = Math.min(460 / (L + 1.6), 320 / (F * FH + PARA + DROP + 0.5))
+  /* v0.7.1 防白屏：比例缩放统一走 safeDiv —— 面宽/总高被异常约束
+     （如 0、空值）时退回兜底比例 8 px/m，绝不让 Infinity 进坐标系统 */
+  const s = Math.min(safeDiv(460, L + 1.6, 8), safeDiv(320, F * FH + PARA + DROP + 0.5, 8))
   const x0 = (SHEET_W - L * s) / 2
   /* ±0.000 首层完成面：固定高度，画布高度改由内容往下撑 */
   const baseY = 370

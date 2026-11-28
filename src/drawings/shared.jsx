@@ -1,4 +1,7 @@
 import React from 'react'
+/* 转发导出不会把名字引入本地作用域，本文件内部的填充/标注组件
+   也要用 hatchW 与 LINE_W —— 必须 import 进来再 re-export */
+import { LINE_W, hatchW } from './lineweight.js'
 
 export const INK = '#1c1b19'
 export const MUTED = '#8a8781'
@@ -9,10 +12,28 @@ export const SHEET = '#fdfcfa'
 export const SHEET_W = 840
 
 /* GB/T 50104 线宽分级与比例计算：纯 JS 模块（Node 测试可导入），此处转发 */
-export { LINE_W, hatchW } from './lineweight.js'
+export { LINE_W, hatchW }
 export { SCALE_SERIES, pickScale } from './sheetmeta.js'
 
-export const f = (n) => Number(n).toFixed(1)
+/* ── 数值防御三件套（v0.7.1 防白屏）──
+   线上事故复盘：任何一处坐标算成 NaN / Infinity，SVG 属性就会写入
+   "NaN" 字符串或抛错，配合无错误边界即整页白屏。三条规则：
+   ① safeDiv —— 一切「除以可能为 0 的量」必须走它，除零/非有限值返回兜底；
+   ② f / pts —— 坐标输出前做有限性检查，NaN 一律落回 0，绝不让 NaN 进 SVG；
+   ③ safeNum —— 文本数值（尺寸标注、比例）非法时显示占位，不抛 toFixed 异常 */
+export const safeDiv = (a, b, fallback = 0) => {
+  const r = a / b
+  return Number.isFinite(r) ? r : fallback
+}
+export const safeNum = (v, digits = 2, fallback = '—') => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(digits) : fallback
+}
+
+export const f = (n) => {
+  const v = Number(n)
+  return Number.isFinite(v) ? v.toFixed(1) : '0.0'
+}
 export const pts = (arr) => arr.map(([x, y]) => `${f(x)},${f(y)}`).join(' ')
 
 /* 人形比例尺 */

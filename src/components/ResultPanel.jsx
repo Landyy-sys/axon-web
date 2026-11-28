@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { IsometricDrawing, ElevationDrawing, SectionDrawing, PlanDrawing } from '../drawings.jsx'
 import SheetFrame from '../drawings/SheetFrame.jsx'
+import { safeNum } from '../drawings/shared.jsx'
 import ViewFusion from './ViewFusion.jsx'
 import Term from './Term.jsx'
+import ErrorBoundary from './ErrorBoundary.jsx'
 import { exportPng, exportPdf } from '../export.js'
 
 const TABS = [
@@ -49,10 +51,15 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
 
   const { model, meta } = result
 
-  /* 把当前视图的 SVG 源码上报给 App（多轮对话的「上一版图纸」状态） */
+  /* 把当前视图的 SVG 源码上报给 App（多轮对话的「上一版图纸」状态）
+     —— 序列化包 try/catch：XMLSerializer 偶发异常绝不能打断渲染主流程 */
   useEffect(() => {
-    const svg = holder.current?.querySelector('svg')
-    if (svg && onSvgSnapshot) onSvgSnapshot(new XMLSerializer().serializeToString(svg))
+    try {
+      const svg = holder.current?.querySelector('svg')
+      if (svg && onSvgSnapshot) onSvgSnapshot(new XMLSerializer().serializeToString(svg))
+    } catch (e) {
+      console.warn('[AXON] SVG 快照序列化失败（不影响出图）：', e)
+    }
   }, [model, tab, showLevels, showOpenings, onSvgSnapshot])
 
   /* ── 一键「下载图纸」：无需切换 Tab，把平 / 立 / 剖 / 等轴测四种视图
@@ -217,12 +224,17 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
         </div>
       </div>
 
-      {/* 图纸画布（A3 图框 + 图签 + 视图，与导出走同一出口） */}
+      {/* 图纸画布（A3 图框 + 图签 + 视图，与导出走同一出口）
+          —— 每个标签页独立套一层 ErrorBoundary（key={tab} 切页自动重置）：
+          某一张图渲染抛错（坐标 NaN、undefined 调 toFixed 等）时，
+          只在这张图的区域显示红色提示卡，其余标签页照常可用，绝不白屏 */}
       <div ref={holder} className="grid-bg flex-1 overflow-hidden rounded-lg border border-hair bg-sheet">
-        {tab === 'iso' && renderView('iso')}
-        {tab === 'elev' && renderView('elev')}
-        {tab === 'sec' && renderView('sec')}
-        {tab === 'plan' && renderView('plan')}
+        <ErrorBoundary key={tab} label={TABS.find((t) => t.id === tab)?.label}>
+          {tab === 'iso' && renderView('iso')}
+          {tab === 'elev' && renderView('elev')}
+          {tab === 'sec' && renderView('sec')}
+          {tab === 'plan' && renderView('plan')}
+        </ErrorBoundary>
       </div>
 
       {exportErr && (
@@ -251,18 +263,18 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
         </p>
       )}
 
-      {/* 元数据条 */}
+      {/* 元数据条（safeNum：任何求解量异常时显示占位符，绝不抛 toFixed 异常） */}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 font-mono text-[11px] text-muted">
         <span>engine <span className="text-ink">TRELLIS.2</span></span>
         <span>seed <span className="text-ink">{meta.seed}</span></span>
         <span>views <span className="text-ink">{model.views}</span></span>
-        <span>coverage <span className="text-ink">{Math.round(model.coverage * 100)}%</span></span>
+        <span>coverage <span className="text-ink">{safeNum(model.coverage * 100, 0, '—')}%</span></span>
         <span>floors <span className="text-ink">{model.floors}F</span></span>
-        <span>fh <span className="text-ink">{model.floorHeight.toFixed(2)} m</span></span>
-        <span>totalH <span className="text-ink">{model.totalH.toFixed(2)} m</span></span>
-        <span>span <span className="text-ink">{model.length.toFixed(1)}×{model.depth.toFixed(1)} m</span></span>
-        <span>scale <span className="text-ink">{model.scale.err}</span></span>
-        <span className="ml-auto">{(meta.ms / 1000).toFixed(1)}s</span>
+        <span>fh <span className="text-ink">{safeNum(model.floorHeight)} m</span></span>
+        <span>totalH <span className="text-ink">{safeNum(model.totalH)} m</span></span>
+        <span>span <span className="text-ink">{safeNum(model.length, 1)}×{safeNum(model.depth, 1)} m</span></span>
+        <span>scale <span className="text-ink">{model.scale?.err ?? '—'}</span></span>
+        <span className="ml-auto">{safeNum(meta.ms / 1000, 1, '—')}s</span>
       </div>
 
       {/* 多轮采样一致度 + 交叉校验 */}
@@ -283,7 +295,7 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
           <span>
             consensus{' '}
             <span className="text-ink">
-              {model.refine.consensus.map((c) => `${c.k}=${c.v}`).join(' · ')}
+              {(model.refine.consensus || []).map((c) => `${c.k}=${c.v}`).join(' · ') || '—'}
             </span>
           </span>
         </div>
@@ -311,7 +323,7 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
           </span>
         )}
         <span>
-          <Term id="scale">比例</Term> <span className="text-ink">{model.scale.mode}</span>
+          <Term id="scale">比例</Term> <span className="text-ink">{model.scale?.mode ?? '—'}</span>
         </span>
         <span>
           cleanup{' '}

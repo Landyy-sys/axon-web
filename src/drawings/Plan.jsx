@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W,
+  INK, MUTED, FAINT, ACCENT, SHEET, SHEET_W, LINE_W, safeDiv,
   f, Stamp, ScaleBar, DimLine, CutLine,
   PocheConcrete, PocheMasonry,
 } from './shared.jsx'
@@ -40,7 +40,8 @@ export default function PlanDrawing({ model }) {
   /* ── 画布与比例 ──
      左侧留出竖向轴号 + 竖向尺寸，上方留出横向轴号，下方留三道尺寸。 */
   const VB_H = 640
-  const s = Math.min((SHEET_W - 250) / (L + 1), (VB_H - 330) / (D + 1))
+  /* v0.7.1 防白屏：分母带 +1 保护之外再走 safeDiv，异常尺寸退回兜底比例 */
+  const s = Math.min(safeDiv(SHEET_W - 250, L + 1, 20), safeDiv(VB_H - 330, D + 1, 20))
   const x0 = 150
   const yTop = 158
   const X = (mx) => x0 + mx * s
