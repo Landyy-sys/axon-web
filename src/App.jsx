@@ -20,9 +20,13 @@ const ResultPanel = lazy(() => import('./components/ResultPanel.jsx'))
    生成慢下来的时间不是空等：
    · 「逐视角视觉证据提取」真的把每张上传图解码成像素、跑 Sobel、提取结构线
    · 「多视角证据融合」真的把各视角结论投票取共识，并把冲突写进图纸
-   · 「多轮采样」真的跑 9 次求解并做一致性投票
-   · 「交叉校验」真的检查平立剖是否自相矛盾 */
-const PASSES = 9
+   · 「多轮采样」真的跑多次求解并做一致性投票
+   · 「交叉校验」真的检查平立剖是否自相矛盾
+
+   v0.7.2 防卡死性能降级：采样轮数 9 → 5。
+   中位数共识对轮数不敏感（5 轮足以抑制随机抖动），求解计算量近乎减半；
+   视觉分析早已限定 320px 分析分辨率（单张 ≤ 6.5 万像素，秒级完成）。 */
+const PASSES = 5
 
 const STAGES = [
   { id: 'pre', ms: 1500, label: '图像预处理 · 主体分割', hint: 'SAM 3 抠出建筑主体，剔除天空与配景' },
@@ -321,7 +325,8 @@ export default function App() {
        规则库逐条比对（洞口越界 / 窗宽大于开间 / 总高失配 / 女儿墙区间 /
        剖切有效性 / 门悬空 / 柱越轮廓 / 开间模数）；② 发现可自动纠错的
        失真（负坐标、悬空门、女儿墙越界…）直接改参数后台重新生成；
-       ③ 复检仍不过 → 静默换随机种子重采样，最多重试 2 次，两版取优。
+       ③ 复检仍不过 → 静默换随机种子重采样，最多重试 1 次（v0.7.2 防卡死：
+          重试硬上限 + 1.2 秒求解时间预算，绝不无限循环），两版取优。
        全程绝不把中间错误报给用户。
        v0.7.1：整段求解包 try/catch —— 求解抛错绝不白屏：
        屏幕弹 toast 说明失败原因，界面回到可重新生成的空闲态。 */
@@ -345,10 +350,16 @@ export default function App() {
 
     let seedUsed = seed
     let best
+    /* v0.7.2 防卡死 · 求解时间预算：整段自检+重试最多花 1.2 秒真实计算。
+       三重硬限制（任一命中立即停）：① 重试次数 ≤ 1；② 墙钟 ≤ 1200ms；
+       ③ try/catch 兜底 —— 超预算或异常时直接交付当前最优版本（带降级告警条），
+       绝不允许无限重试或长时间阻塞主线程。 */
+    const SOLVE_BUDGET_MS = 1200
+    const tSolve = performance.now()
     try {
       best = buildModel(seed, cands)
       let attempts = 1
-      while (!best.check.ok && attempts < 3) {
+      while (!best.check.ok && attempts < 2 && performance.now() - tSolve < SOLVE_BUDGET_MS) {
         setQcRetry(attempts)
         await sleep(600) // 给进度界面一拍停留：用户能看到"自动重试中"
         if (genRef.current !== gen) return

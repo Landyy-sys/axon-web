@@ -39,6 +39,44 @@ const TAG = (on) =>
     on ? 'border-ink bg-ink text-white' : 'border-hair text-muted hover:text-ink',
   ].join(' ')
 
+/* v0.7.2 防卡死 · 分帧渲染的占位符：轻量、无布局抖动 */
+function ViewBoot() {
+  return (
+    <div className="grid-bg flex h-full items-center justify-center">
+      <span className="block h-4 w-4 animate-spin rounded-full border-[1.5px] border-[#cfccc5] border-t-ink" />
+    </div>
+  )
+}
+
+/* v0.7.2 防卡死 · 默认预览图（降级兜底）：
+   看门狗 3 秒内没等到正式 SVG 时展示的最小静态等轴测体块，
+   纯静态 SVG 零计算，任何设备都能瞬间渲染 */
+function FallbackPreview() {
+  return (
+    <svg viewBox="0 0 840 480" className="block h-full w-full" role="img" aria-label="默认预览图">
+      <rect width="840" height="480" fill="#fbfaf7" />
+      {/* 等轴测体块：长 × 宽 × 高，三面明暗区分 */}
+      <g stroke="#3d3a35" strokeWidth="1.4" strokeLinejoin="round">
+        <polygon points="420,150 620,255 420,360 220,255" fill="#e6e2da" />
+        <polygon points="420,150 620,255 620,415 420,310" fill="#cfcbc2" />
+        <polygon points="420,150 220,255 220,415 420,310" fill="#b8b4ab" />
+      </g>
+      {/* 楼层分缝（示意） */}
+      <g stroke="#8a867d" strokeWidth="0.7" opacity="0.75">
+        {[190, 230, 270].map((dy) => (
+          <g key={dy}>
+            <line x1={220} y1={dy + 105} x2={420} y2={dy} />
+            <line x1={420} y1={dy} x2={620} y2={dy + 105} />
+          </g>
+        ))}
+      </g>
+      <text x="420" y="445" textAnchor="middle" fontSize="13" fill="#6f6b62" fontFamily="ui-monospace, monospace">
+        DEFAULT PREVIEW · 默认预览（未完成完整求解）
+      </text>
+    </svg>
+  )
+}
+
 export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot }) {
   const [tab, setTab] = useState('iso')
   const [showInferred, setShowInferred] = useState(false)
@@ -48,6 +86,11 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
   const [allProgress, setAllProgress] = useState(null) // 1..4 | null（「下载图纸」批量导出进度）
   const [exportErr, setExportErr] = useState(null)
   const holder = useRef(null)
+  /* v0.7.2 防卡死 · 两个降级状态位：
+     viewReady —— 分帧渲染闸门：切视图/新结果时先给浏览器一帧画 UI，下一帧再算重活
+     degraded  —— 看门狗触发位：3 秒没等到正式 SVG 就换默认预览图 */
+  const [viewReady, setViewReady] = useState(false)
+  const [degraded, setDegraded] = useState(false)
 
   const { model, meta } = result
 
@@ -61,6 +104,45 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
       console.warn('[AXON] SVG 快照序列化失败（不影响出图）：', e)
     }
   }, [model, tab, showLevels, showOpenings, onSvgSnapshot])
+
+  /* ══ v0.7.2 防卡死 · 异步分帧渲染 ══
+     之前四个视图的重计算与 Tab/进度 UI 挤在同一帧，低端设备上出图那一刻
+     整个页面会"冻结"数秒（假死观感）。现在：模型或标签页一变，
+     先渲染轻量占位符（浏览器这一帧只画 spinner），下一帧
+     （requestAnimationFrame 双跳，确保占位符已经真正绘制）再开始算图纸。 */
+  useEffect(() => {
+    setViewReady(false)
+    setDegraded(false)
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setViewReady(true))
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [model, tab])
+
+  /* ══ v0.7.2 防卡死 · 3 秒看门狗 ══
+     每 150ms 探一次画布区：SVG 出现 → 立即撤岗；3 秒还没出现 →
+     判定设备算力不足或渲染被卡死，切换为默认预览图并明示原因。
+     降级后其他功能照常可用（可重生成、可切 Tab），绝不无限等待。 */
+  useEffect(() => {
+    const t0 = performance.now()
+    const WATCHDOG_MS = 3000
+    const id = setInterval(() => {
+      if (holder.current?.querySelector('svg')) {
+        clearInterval(id)
+        return
+      }
+      if (performance.now() - t0 > WATCHDOG_MS) {
+        clearInterval(id)
+        console.warn('[AXON] 图纸 3 秒未出图，已降级为默认预览图')
+        setDegraded(true)
+      }
+    }, 150)
+    return () => clearInterval(id)
+  }, [model, tab])
 
   /* ── 一键「下载图纸」：无需切换 Tab，把平 / 立 / 剖 / 等轴测四种视图
      全部离屏渲染成 SVG，再逐张栅格化为高清 PNG（3 倍 ≈ 300 DPI）。
@@ -85,6 +167,10 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
 
   const doExportAll = async () => {
     if (exporting || allProgress) return
+    if (degraded) {
+      setExportErr('当前是降级预览图，请点「重生成」恢复完整图纸后再导出')
+      return
+    }
     setExportErr(null)
     try {
       for (let i = 0; i < VIEW_DEFS.length; i++) {
@@ -129,6 +215,10 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
   const doExport = async (kind) => {
     const svg = holder.current?.querySelector('svg')
     if (!svg || exporting) return
+    if (degraded) {
+      setExportErr('当前是降级预览图，请点「重生成」恢复完整图纸后再导出')
+      return
+    }
     setExporting(kind)
     setExportErr(null)
     try {
@@ -225,15 +315,26 @@ export default function ResultPanel({ result, onRegenerate, busy, onSvgSnapshot 
       </div>
 
       {/* 图纸画布（A3 图框 + 图签 + 视图，与导出走同一出口）
-          —— 每个标签页独立套一层 ErrorBoundary（key={tab} 切页自动重置）：
-          某一张图渲染抛错（坐标 NaN、undefined 调 toFixed 等）时，
-          只在这张图的区域显示红色提示卡，其余标签页照常可用，绝不白屏 */}
+          —— 三层防卡死渲染策略（v0.7.2）：
+          ① degraded（看门狗超时）→ 默认预览图 + 明示原因；
+          ② viewReady=false（分帧等待）→ 轻量 spinner，主线程不阻塞；
+          ③ 正常 → 分帧渲染出的完整图纸。
+          每个标签页独立套一层 ErrorBoundary（key={tab} 切页自动重置）：
+          某一张图渲染抛错只在该区域亮红卡，其余标签页照常可用，绝不白屏 */}
+      {degraded && (
+        <div className="mb-2 rounded-md border border-[#b45309]/40 bg-[#fffbeb] px-3 py-2 text-[12px] leading-relaxed text-[#92400e]">
+          ⏳ 由于当前设备算力限制，已为您加载默认预览图。点「重生成」可再次尝试完整出图。
+        </div>
+      )}
       <div ref={holder} className="grid-bg flex-1 overflow-hidden rounded-lg border border-hair bg-sheet">
-        <ErrorBoundary key={tab} label={TABS.find((t) => t.id === tab)?.label}>
-          {tab === 'iso' && renderView('iso')}
-          {tab === 'elev' && renderView('elev')}
-          {tab === 'sec' && renderView('sec')}
-          {tab === 'plan' && renderView('plan')}
+        <ErrorBoundary key={`${tab}-${degraded ? 'fb' : 'full'}`} label={TABS.find((t) => t.id === tab)?.label}>
+          {degraded ? (
+            <FallbackPreview />
+          ) : viewReady ? (
+            renderView(tab)
+          ) : (
+            <ViewBoot />
+          )}
         </ErrorBoundary>
       </div>
 
